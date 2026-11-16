@@ -41,6 +41,9 @@ All endpoints are under `/api/` and return JSON. Authenticated endpoints expect 
 | GET | `/api/books/search/?q=…&page=1` | token | Search Google Books, falling back to Open Library |
 | POST | `/api/books/` | token | Save a search result (`source`, `source_id`) to the catalog |
 | GET | `/api/books/{id}/` | token | One catalog book |
+| GET | `/api/shelf/?status=&book=&ordering=` | token | Your shelf, paginated, with pages logged per book |
+| POST | `/api/shelf/` | token | Add `book_id` (or `source` + `source_id`) with an optional status; 409 if already shelved |
+| GET / PATCH / DELETE | `/api/shelf/{id}/` | token | One entry: change status, rate, review or mark DNF; DELETE also removes its reading logs |
 
 Book data comes from [Google Books](https://books.google.com) and [Open Library](https://openlibrary.org). Search responses name their `source`, so the UI can show the right attribution.
 
