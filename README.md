@@ -24,6 +24,18 @@ docker compose exec backend python manage.py migrate
 - API health check: http://localhost:8000/api/health/
 - Frontend: http://localhost:5173
 
+## API
+
+All endpoints are under `/api/` and return JSON. Authenticated endpoints expect `Authorization: Bearer <access token>`.
+
+| Method | Path | Auth | Purpose |
+| --- | --- | --- | --- |
+| GET | `/api/health/` | none | Liveness check |
+| POST | `/api/auth/register/` | none | Sign up with `email` and `password`; returns the user and a token pair |
+| POST | `/api/auth/token/` | none | Log in; returns `access` and `refresh` tokens |
+| POST | `/api/auth/token/refresh/` | none | Exchange `refresh` for a new `access` token |
+| GET | `/api/auth/me/` | token | The logged-in user |
+
 ## Tests and lint
 
 ```bash

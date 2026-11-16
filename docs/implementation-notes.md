@@ -9,6 +9,19 @@ Decisions made while building, which aren't in the PRD. These are the source of 
 - **Series numbers** are decimals, so novellas like 2.5 fit.
 - **Deleting books.** A `Book` can't be deleted while any shelf entry or reading log points at it. Deleting a user removes their shelf and logs.
 
+## T-1: Auth (built Nov 16, 2026)
+
+- **Endpoints**, all under `/api/auth/`:
+  - `register/` (POST, open to anyone): returns the user plus a token pair, so you're logged in right after signing up
+  - `token/` (POST): log in with email and password
+  - `token/refresh/` (POST): exchange a refresh token for a new access token
+  - `me/` (GET, needs a token)
+- **Emails are stored fully lowercased** and matched without regard to case at login. Lowercasing happens in `UserManager.normalize_email` and again in `User.save()`, so admin forms are covered too. There's no database constraint on lowercase email, so this needed no migration.
+- **Turning off sign-up:** setting `ALLOW_SIGNUP=false` makes registration return 403. Set it in production once your account exists.
+- **Rate limit:** sign-up, login and refresh share an `auth` limit set by `AUTH_THROTTLE_RATE` (default 10 per minute).
+- **Token lifetimes:** access tokens last 15 minutes and refresh tokens 7 days. Both are set by environment variables.
+- **No server-side logout yet.** The frontend logs out by discarding its tokens. Revoking tokens on the server would need simplejwt's `token_blacklist` app, which adds a migration. Revisit it if a public beta happens.
+
 ## T-2: Shelf API
 
 - **Removing a book from the shelf** deletes its `ReadingLog` rows for that user too. The frontend asks for confirmation first, and the confirmation says how many logs will be deleted.

@@ -7,6 +7,19 @@ class UserManager(BaseUserManager["User"]):
 
     use_in_migrations = True
 
+    @classmethod
+    def normalize_email(cls, email: str | None) -> str:
+        """Lowercase the whole address, not just the domain like Django's default.
+
+        Email logins should be case-insensitive in practice, so "Reader@x.com" and
+        "reader@x.com" must not become two accounts or fail to log in.
+        """
+        return (email or "").strip().lower()
+
+    def get_by_natural_key(self, username: str | None) -> "User":
+        # Used by ModelBackend at login, so the address someone types is matched the same way.
+        return self.get(**{self.model.USERNAME_FIELD: self.normalize_email(username)})
+
     def _create_user(self, email: str, password: str | None, **extra_fields) -> "User":
         if not email:
             raise ValueError("Email is required")
@@ -36,6 +49,11 @@ class User(AbstractUser):
     REQUIRED_FIELDS: list[str] = []
 
     objects = UserManager()
+
+    def save(self, *args, **kwargs) -> None:
+        # Covers paths that skip the manager (admin forms, plain .save()).
+        self.email = UserManager.normalize_email(self.email)
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return self.email
