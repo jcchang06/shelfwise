@@ -73,15 +73,25 @@ shelfwise/
 
 ## Commands
 
-(Create these as you scaffold; keep this section accurate.)
+(Keep this section accurate.) Versions are pinned in `.python-version` (3.12) and `.nvmrc` (22).
 
 ```bash
-docker compose up                         # full dev stack
+cp .env.example .env                      # once; then set DJANGO_SECRET_KEY
+docker compose up                         # full dev stack: API :8000, frontend :5173
 docker compose exec backend python manage.py migrate
-docker compose exec backend pytest
-docker compose exec backend ruff check . && ruff format --check .
-cd frontend && npm run dev | npm run lint | npm test
+docker compose exec backend python manage.py makemigrations <app>
+docker compose exec backend pytest        # runs with coverage, fails under 70%
+docker compose exec backend sh -c "ruff check . && ruff format --check ."
+
+# Backend without Docker for the app (Postgres still from compose: docker compose up -d postgres)
+cd backend && uv venv -p 3.12 .venv && uv pip install -r requirements-dev.txt
+.venv/bin/pytest
+
+# Frontend
+cd frontend && npm run dev                # or: lint, format, format:check, typecheck, test, build
 ```
+
+On this Mac, Homebrew tools (`gh`, `node`, `npm`) live in `/opt/homebrew/bin`, which may need adding to PATH in non-login shells.
 
 ## How to work with me
 

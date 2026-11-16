@@ -1,0 +1,62 @@
+# Local development stack: docker compose up
+# Reads .env (copy from .env.example). The hostnames below override the localhost
+# defaults in .env so containers talk to each other over the compose network.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-shelfwise}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-shelfwise}
+      POSTGRES_DB: ${POSTGRES_DB:-shelfwise}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Used only for local Celery (Phase 2+). Production runs jobs from GitHub Actions cron.
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-shelfwise}:${POSTGRES_PASSWORD:-shelfwise}@postgres:5432/${POSTGRES_DB:-shelfwise}
+      REDIS_URL: redis://redis:6379/0
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    env_file: .env
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules # keep the container's node_modules, not the host's
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
