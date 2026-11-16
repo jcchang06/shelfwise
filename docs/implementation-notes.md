@@ -97,8 +97,9 @@ Side effects only happen when the status actually changes. Values sent in the re
 
 ### Validation (400, with every broken rule reported at once)
 
+- **Only editable fields may be sent.** `POST /api/shelf/` and `PATCH /api/shelf/{id}/` reject unknown and read-only fields with a 400 (`{field: ["This field can't be set here."]}`), rather than silently ignoring them as DRF does by default. The editable fields are `status`, `rating`, `review`, `started_at`, `finished_at`, `dnf_page`, `dnf_at`, `dnf_reason` and `dnf_note`, plus `book_id` or `source` + `source_id` on POST. Read-only fields such as `id`, `book`, `pages_logged`, `reading_log_count`, `created_at` and `updated_at` must not be sent back. **The frontend must send only the fields it means to change**, never a whole entry from a GET.
 - **Rating (T-4)** can only be **set or changed** when the status after the request is `finished`.
-  - Re-sending the current value is fine, so a client can PATCH a whole object back.
+  - Re-sending the current value is fine, so a form can send its rating field unchanged.
   - Sending `null` while moving to `dnf` is also fine.
   - A kept rating can't be changed or cleared during a re-read until the book is finished again.
 - **Reviews** are allowed on any status.
