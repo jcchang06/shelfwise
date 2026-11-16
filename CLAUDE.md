@@ -53,7 +53,7 @@ shelfwise/
 - `Author` ↔ `Book` many-to-many through `BookAuthor`.
 - `UserBook`: one row per (user, book), unique together. `status` is a `TextChoices`: `want_to_read`, `reading`, `finished`, `dnf`. Fields: `rating` (1–5, nullable), `review`, `started_at`, `finished_at`, and DNF fields `dnf_page`, `dnf_at`, `dnf_reason` (`TextChoices`: `writing_style`, `pacing`, `content`, `not_my_genre`, `not_in_the_mood`, `other`), `dnf_note`. A DNF book can move back to `reading`.
 - `ReadingLog`: user, book, `log_date`, `pages_read`.
-- Every queryset in a view must be filtered to `request.user`. Never return another user's data.
+- Every queryset over user data (shelf, reading logs, and later recommendations, followed authors and alerts) must be filtered to `request.user`. Never return another user's data. The catalog (`Book`, `Author`) is shared and not per-user, but its endpoints still require login.
 - DNF weights for recommendations live in settings (`DNF_REASON_WEIGHTS = {"writing_style": 1.0, "not_my_genre": 1.0, "pacing": 0.5, "content": 0.5, "not_in_the_mood": 0.0, "other": 0.5}`), not hard-coded in the engine.
 
 ## External APIs
