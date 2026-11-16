@@ -29,6 +29,9 @@ frontend/coverage/
 frontend/.vite/
 *.tsbuildinfo
 
+# Full API responses from scripts/record_fixtures.py; only trimmed fixtures are committed
+backend/catalog/tests/fixtures/raw/
+
 # Uploaded Goodreads exports (Phase 2) — never commit user data
 *.csv
 media/

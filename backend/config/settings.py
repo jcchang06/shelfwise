@@ -126,9 +126,29 @@ ALLOW_SIGNUP = env.bool("ALLOW_SIGNUP", default=True)
 
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=["http://localhost:5173"])
 
+# --- Cache --------------------------------------------------------------------
+
+# Database cache: shared by every process and survives Render's free instance sleeping,
+# unlike locmem. Holds API response caches, the Google quota flag and throttle counters.
+# Needs `python manage.py createcachetable` once per database (see README).
+# Tests swap in locmem (conftest.py).
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "django_cache",
+    }
+}
+
 # --- Integrations -------------------------------------------------------------
 
 GOOGLE_BOOKS_API_KEY = env("GOOGLE_BOOKS_API_KEY", default="")
+# ISO 639-1 code. Google Books uses it as langRestrict; Open Library as its lang ranking hint.
+BOOK_SEARCH_LANGUAGE = env("BOOK_SEARCH_LANGUAGE", default="en")
+# Open Library asks API clients to identify themselves.
+OPEN_LIBRARY_USER_AGENT = env(
+    "OPEN_LIBRARY_USER_AGENT",
+    default="Shelfwise/0.1 (+https://github.com/jcchang06/shelfwise)",
+)
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
 
 # --- Domain -------------------------------------------------------------------

@@ -1,0 +1,11 @@
+{
+  "key": "/works/OL0000001W",
+  "title": "Project Hail Mary",
+  "description": {
+    "type": "/type/text",
+    "value": "Ryland Grace is the sole survivor on a desperate, last-chance mission &mdash; and if he fails, humanity and the earth itself will perish.\r\n\r\nExcept that right now, he doesn't know that."
+  },
+  "subjects": ["Science fiction", "Space flight", "Astronauts", "Accessible book"],
+  "covers": [10000001, -1],
+  "authors": [{"author": {"key": "/authors/OL0000001A"}, "type": {"key": "/type/author_role"}}]
+}

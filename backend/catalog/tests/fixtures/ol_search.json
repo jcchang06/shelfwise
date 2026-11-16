@@ -1,0 +1,22 @@
+{
+  "numFound": 2,
+  "docs": [
+    {
+      "key": "/works/OL0000001W",
+      "title": "Project Hail Mary",
+      "author_name": ["Andy Weir"],
+      "author_key": ["OL0000001A"],
+      "first_publish_year": 2021,
+      "number_of_pages_median": 496,
+      "isbn": ["0593135202", "9780593135204", "9781529157468"],
+      "subject": ["Science fiction", "Accessible book", "Protected DAISY", "Space flight", "Astronauts", "New York Times bestseller", "Large type books"],
+      "cover_i": 10000001
+    },
+    {
+      "key": "/works/OL0000002W",
+      "title": "Project Hail Mary: Study Guide",
+      "author_name": ["Fixture Guides"],
+      "first_publish_year": 2022
+    }
+  ]
+}
