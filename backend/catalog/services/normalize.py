@@ -66,13 +66,21 @@ def genres_from_open_library_subjects(subjects: Iterable[str] | None) -> tuple[s
     return kept[:MAX_OPEN_LIBRARY_GENRES]
 
 
-def normalize_author_name(name: str) -> str:
-    """Matching key for authors: lowercase, no periods, single spaces.
+# A single-letter word followed by another single-letter word: the "j " in "j r r tolkien".
+# Postgres spells the same pattern with \m / \M word anchors (see catalog.py).
+INITIAL_RUN = re.compile(r"\b(\w) (?=\w\b)")
 
-    "J.R.R.  Tolkien" -> "jrr tolkien". Must stay in step with the database expression
-    in catalog.services.catalog._normalized_author_name.
+
+def normalize_author_name(name: str) -> str:
+    """Matching key for authors.
+
+    Lowercase, periods become spaces, whitespace collapses, then runs of initials are
+    joined. So "J.R.R. Tolkien", "J. R. R. Tolkien" and "j r r  tolkien" all become
+    "jrr tolkien", while a lone middle initial stays put ("ursula k le guin").
+    Must stay in step with catalog.services.catalog._normalized_author_name.
     """
-    return _WHITESPACE.sub(" ", name.lower().replace(".", "")).strip()
+    spaced = _WHITESPACE.sub(" ", name.lower().replace(".", " ")).strip()
+    return INITIAL_RUN.sub(r"\1", spaced)
 
 
 _ISBN_CHARS = re.compile(r"[\s-]")

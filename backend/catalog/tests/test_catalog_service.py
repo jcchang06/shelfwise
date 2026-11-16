@@ -180,11 +180,34 @@ class TestAuthors:
         assert catalog.get_or_create_author(AuthorRef("j r r  tolkien")) == existing
         assert Author.objects.count() == 1
 
-    def test_periods_removed_not_turned_into_spaces(self):
-        # "J.R.R." -> "jrr", which differs from "J. R. R." -> "j r r" (by design).
-        AuthorFactory(name="J. R. R. Tolkien")
-        catalog.get_or_create_author(AuthorRef("J.R.R. Tolkien"))
+    @pytest.mark.parametrize(
+        ("stored", "incoming"),
+        [
+            ("J. R. R. Tolkien", "J.R.R. Tolkien"),
+            ("J.R.R. Tolkien", "J. R. R. Tolkien"),
+            ("JRR Tolkien", "J.R.R. Tolkien"),
+            ("N.K. Jemisin", "N. K. Jemisin"),
+        ],
+    )
+    def test_initials_match_with_or_without_spaces(self, stored, incoming):
+        # Runs through the Postgres expression, so it also proves the DB and Python
+        # normalizations agree.
+        existing = AuthorFactory(name=stored)
+        assert catalog.get_or_create_author(AuthorRef(incoming)) == existing
+        assert Author.objects.count() == 1
+
+    def test_middle_initial_is_not_joined_to_names(self):
+        AuthorFactory(name="Ursula K. Le Guin")
+        catalog.get_or_create_author(AuthorRef("Ursula KLe Guin"))
         assert Author.objects.count() == 2
+
+    def test_book_saves_reuse_author_across_initial_styles(self, mocked):
+        mock_google_volume(mocked, "vol1", authors=["J. R. R. Tolkien"])
+        mock_google_volume(mocked, "vol2", title="The Silmarillion", authors=["J.R.R. Tolkien"])
+        hobbit, _ = catalog.get_or_create_book("google_books", "vol1")
+        silmarillion, _ = catalog.get_or_create_book("google_books", "vol2")
+        assert hobbit.authors.get() == silmarillion.authors.get()
+        assert Author.objects.count() == 1
 
     def test_name_match_prefers_oldest(self):
         oldest = AuthorFactory(name="Andy Weir")

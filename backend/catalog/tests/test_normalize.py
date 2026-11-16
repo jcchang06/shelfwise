@@ -71,9 +71,15 @@ class TestOpenLibraryGenres:
     ("name", "expected"),
     [
         ("J.R.R. Tolkien", "jrr tolkien"),
-        ("  Ursula K.  Le Guin ", "ursula k le guin"),
-        ("N. K. Jemisin", "n k jemisin"),
+        ("J. R. R. Tolkien", "jrr tolkien"),
+        ("j r r  tolkien", "jrr tolkien"),
+        ("JRR Tolkien", "jrr tolkien"),
+        ("  Ursula K.  Le Guin ", "ursula k le guin"),  # lone middle initial stays
+        ("N. K. Jemisin", "nk jemisin"),
+        ("N.K. Jemisin", "nk jemisin"),
         ("ANDY WEIR", "andy weir"),
+        ("A. A. Milne", "aa milne"),
+        ("Mary Shelley", "mary shelley"),
     ],
 )
 def test_normalize_author_name(name, expected):

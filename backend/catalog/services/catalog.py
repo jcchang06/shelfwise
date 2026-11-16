@@ -118,10 +118,15 @@ def _fill_gaps(book: Book, fields: dict, id_field: str, source_id: str) -> None:
 
 
 def _normalized_author_name(expression):
-    """Database version of normalize.normalize_author_name (Postgres regexp_replace)."""
-    no_periods = Lower(Replace(expression, Value("."), Value("")))
-    collapsed = Func(no_periods, Value(r"\s+"), Value(" "), Value("g"), function="REGEXP_REPLACE")
-    return Trim(collapsed)
+    """Database version of normalize.normalize_author_name (Postgres regexp_replace).
+
+    Same steps in the same order; \\m and \\M are Postgres's word-start/word-end anchors.
+    """
+    spaced = Lower(Replace(expression, Value("."), Value(" ")))
+    collapsed = Trim(Func(spaced, Value(r"\s+"), Value(" "), Value("g"), function="REGEXP_REPLACE"))
+    return Func(
+        collapsed, Value(r"\m(\w) (?=\w\M)"), Value(r"\1"), Value("g"), function="REGEXP_REPLACE"
+    )
 
 
 def authors_matching_name(name: str) -> QuerySet[Author]:
