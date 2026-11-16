@@ -1,7 +1,10 @@
 name: CI
 
+# Pushes to main (merges) and PRs into main. Feature branches run once via their PR,
+# not twice (push + pull_request), which halves Actions minutes.
 on:
   push:
+    branches: [main]
   pull_request:
     branches: [main]
 
