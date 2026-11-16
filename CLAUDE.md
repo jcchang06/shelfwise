@@ -91,8 +91,6 @@ cd backend && uv venv -p 3.12 .venv && uv pip install -r requirements-dev.txt
 cd frontend && npm run dev                # or: lint, format, format:check, typecheck, test, build
 ```
 
-On this Mac, Homebrew tools (`gh`, `node`, `npm`) live in `/opt/homebrew/bin`, which may need adding to PATH in non-login shells.
-
 ## How to work with me
 
 - Work in small steps: one requirement or one layer at a time. After each step, run tests and lint, then summarize what changed and what's next.
