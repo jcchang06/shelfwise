@@ -64,19 +64,53 @@ Decisions made while building, which aren't in the PRD. These are the source of 
   - **`GET /api/books/{id}/`** returns one book, with its authors in credit order.
 - **Open Library save** makes two calls: `works/{key}.json` for the description, and `search.json?q=key:/works/{key}` for authors, ISBN, page count and year.
 
-## T-2: Shelf API
+## T-2 / T-4 / T-6: Shelf API (decided Nov 16, 2026)
 
-- **Removing a book from the shelf** deletes its `ReadingLog` rows for that user too. The frontend asks for confirmation first, and the confirmation says how many logs will be deleted.
-- **Marking a book DNF keeps its logs.** Pages read before stopping still count in stats.
-- **Resuming a DNF book** clears all DNF fields: `dnf_page`, `dnf_at`, `dnf_reason` and `dnf_note`. A book you're reading again must not count as a negative signal for recommendations (R-5).
-- **When marking a book DNF:**
-  - `dnf_reason` is required. The database enforces this too.
-  - `dnf_at` defaults to today.
-  - `dnf_page` defaults to the total `pages_read` across that user's logs for the book, and can't exceed `page_count` when that's known.
+The rules live in `tracking/services.py` (`apply_shelf_changes`). The serializers only check types.
 
-## T-4: Ratings
+### Endpoints
 
-- **A rating is only allowed while the status is `finished`.** The API rejects a rating on any other status. The database only checks the 1 to 5 range.
+All are under `/api/shelf/`, all require login, and all are filtered to `request.user`. Another user's entry returns 404.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/shelf/?status=&book=&ordering=` | Paginated list. `ordering` is one of `-updated_at` (default), `title`, `-finished_at`, `-created_at` |
+| POST | `/api/shelf/` | Add `{book_id}` or `{source, source_id}`, the second form saving to the catalog first. Optional `status` (default `want_to_read`) and fields. Returns 201, or **409 with the existing entry's `id`** if the book is already on the shelf |
+| GET / PATCH / DELETE | `/api/shelf/{id}/` | PATCH only, no PUT. DELETE returns 204 |
+
+- **Each entry includes `pages_logged` and `reading_log_count`.**
+- **Removing a book** is a plain DELETE that also deletes the user's `ReadingLog` rows for that book. The frontend asks for confirmation first and uses `reading_log_count` in the message.
+
+### Status changes
+
+Side effects only happen when the status actually changes. Values sent in the request always win over these defaults.
+
+| Change | Side effects |
+| --- | --- |
+| any → `reading` | `started_at` = today if empty (a re-read keeps the first read's start unless a new one is sent) |
+| any → `finished` | `finished_at` = today, **overwriting** an earlier date, so a re-read marked finished again gets the new date |
+| any → `dnf` | **rating cleared**, because stars and a DNF don't mix. `finished_at` is kept. `dnf_at` = today. `dnf_page` = total pages logged, capped at `page_count`, or null if there are no logs. `dnf_reason` is required |
+| `dnf` → any | all DNF fields cleared (`dnf_page`, `dnf_at`, `dnf_reason`, `dnf_note`). Logs are kept |
+| `finished` → `reading` / `want_to_read` | **rating and `finished_at` kept.** A re-read mustn't erase a 5★ that drives recommendations and auto-follow |
+
+### Validation (400, with every broken rule reported at once)
+
+- **Rating (T-4)** can only be **set or changed** when the status after the request is `finished`.
+  - Re-sending the current value is fine, so a client can PATCH a whole object back.
+  - Sending `null` while moving to `dnf` is also fine.
+  - A kept rating can't be changed or cleared during a re-read until the book is finished again.
+- **Reviews** are allowed on any status.
+- **DNF fields** are only accepted when the status after the request is `dnf`. Blank values are accepted as no-ops.
+- **`dnf_reason`** is required for `dnf` and can't be blanked. The database enforces this too.
+- **`dnf_page`** must be no more than the book's `page_count` when that's known. The default worked out from logs is capped rather than rejected.
+- **Dates** (`started_at`, `finished_at`, `dnf_at`) can't be after today.
+- **`started_at` must be on or before `finished_at`**, but this is only checked when the status after the request is `finished`. During a re-read, `finished_at` is still the previous read's date.
+- **"Today"** is `timezone.localdate()` in `TIME_ZONE` (an environment variable, default `America/Los_Angeles`). Timestamps are still stored in UTC.
+
+### Notes for later phases
+
+- **T-5 stats:** a re-read in progress has status `reading` but keeps its old `finished_at`. "Books finished per year" should count `status = finished` by `finished_at`, not every row with a `finished_at`. v1 doesn't keep a history of each read.
+- **R-2 and N-1:** a kept rating on a re-read still counts as "rated 4★+". DNF books never have a rating.
 
 ## T-3: Page logs
 
