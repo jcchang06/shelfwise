@@ -111,7 +111,11 @@ REST_FRAMEWORK = {
     # Only views that set throttle_scope are throttled. "auth" covers sign-up and login,
     # which are the endpoints worth brute-forcing.
     "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.ScopedRateThrottle"],
-    "DEFAULT_THROTTLE_RATES": {"auth": env("AUTH_THROTTLE_RATE", default="10/minute")},
+    "DEFAULT_THROTTLE_RATES": {
+        "auth": env("AUTH_THROTTLE_RATE", default="10/minute"),
+        # Per user. Protects the 1,000/day Google Books quota from a runaway client.
+        "book_search": env("BOOK_SEARCH_THROTTLE_RATE", default="30/minute"),
+    },
 }
 
 SIMPLE_JWT = {
