@@ -38,6 +38,11 @@ All endpoints are under `/api/` and return JSON. Authenticated endpoints expect 
 | POST | `/api/auth/token/` | none | Log in; returns `access` and `refresh` tokens |
 | POST | `/api/auth/token/refresh/` | none | Exchange `refresh` for a new `access` token |
 | GET | `/api/auth/me/` | token | The logged-in user |
+| GET | `/api/books/search/?q=…&page=1` | token | Search Google Books, falling back to Open Library |
+| POST | `/api/books/` | token | Save a search result (`source`, `source_id`) to the catalog |
+| GET | `/api/books/{id}/` | token | One catalog book |
+
+Book data comes from [Google Books](https://books.google.com) and [Open Library](https://openlibrary.org). Search responses name their `source`, so the UI can show the right attribution.
 
 ## Tests and lint
 

@@ -40,11 +40,23 @@ Decisions made while building, which aren't in the PRD. These are the source of 
   3. Otherwise, a new book is created.
 - **Matching authors:**
   - **By key first:** if the source gives an Open Library author key, match on that.
-  - **Then by name:** otherwise match on the normalized name (lowercase, periods removed, spaces collapsed), picking the oldest match.
+  - **Then by name:** otherwise match on the normalized name, picking the oldest match. Normalizing means lowercasing, turning periods into spaces, collapsing spaces, then joining runs of single-letter initials. "J.R.R. Tolkien", "J. R. R. Tolkien" and "JRR Tolkien" all become `jrr tolkien`. A lone middle initial stays put, so "Ursula K. Le Guin" becomes `ursula k le guin`.
   - **Filling in a key:** a keyless author whose name matches gets the key.
   - **Different keys:** an author with a different key is treated as a different person.
 - **Author lookup cost:** the name match scans the authors table using a Postgres expression. If the C-3 seed makes this slow, add an indexed `name_normalized` column, which needs a migration.
 - **Open Library User-Agent:** `OPEN_LIBRARY_USER_AGENT` (default `Shelfwise/0.1 (+https://github.com/jcchang06/shelfwise)`).
+- **Endpoints**, all requiring login:
+  - **`GET /api/books/search/?q=&page=`**
+    - `q` must be 2 to 200 characters after trimming, and `page` must be 1 to 10.
+    - The response is `{source, page, next_page, results[]}`. Each result carries `book_id` when it's already in the catalog.
+    - `next_page` is null unless the page was full. The endpoint uses a page number rather than DRF pagination, because results don't come from a database queryset.
+    - Rate limited per user by `BOOK_SEARCH_THROTTLE_RATE` (30 per minute).
+    - Returns 503 if both sources are down.
+  - **`POST /api/books/ {source, source_id}`**
+    - Returns 201 for a new book and 200 if it's already in the catalog.
+    - Returns 404 if the source has no such book, and 503 if the source is unreachable or Google is over quota.
+    - `source_id` is checked against a strict pattern (Google: `[A-Za-z0-9_-]{1,32}`; Open Library: `OL\d+W`) because it goes into the API URL path.
+  - **`GET /api/books/{id}/`** returns one book, with its authors in credit order.
 - **Open Library save** makes two calls: `works/{key}.json` for the description, and `search.json?q=key:/works/{key}` for authors, ISBN, page count and year.
 
 ## T-2: Shelf API
