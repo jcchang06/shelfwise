@@ -82,7 +82,7 @@ class TestToFinished:
 
     def test_reread_finished_again_with_sent_date(self):
         ub = finished_book()
-        apply(ub, status=S.READING)
+        apply(ub, status=S.READING, started_at=dt.date(2026, 11, 1))
         ub = apply(ub, status=S.FINISHED, finished_at=dt.date(2026, 11, 10))
         assert ub.finished_at == dt.date(2026, 11, 10)
 
@@ -98,11 +98,26 @@ class TestLeavingFinished:
         assert ub.status == new_status
         assert ub.rating == 5 and ub.finished_at == OLD_FINISH
 
-    def test_reread_keeps_old_started_at(self):
-        # started_at is only filled when empty, so a re-read keeps the first read's start
-        # unless the client sends a new one.
+    def test_reread_starts_today(self):
+        # finished -> reading is a new read, so started_at moves to today even though the
+        # first read's start is already set.
         ub = apply(finished_book(), status=S.READING)
+        assert ub.started_at == TODAY
+
+    def test_reread_sent_start_wins(self):
+        ub = apply(finished_book(), status=S.READING, started_at=EARLIER)
+        assert ub.started_at == EARLIER
+
+    def test_finished_to_want_to_read_keeps_started_at(self):
+        # Only entering `reading` touches started_at.
+        ub = apply(finished_book(), status=S.WANT_TO_READ)
         assert ub.started_at == FIRST_START
+
+    def test_full_reread_cycle_dates(self):
+        ub = finished_book()
+        apply(ub, status=S.READING, started_at=dt.date(2026, 11, 1))
+        ub = apply(ub, status=S.FINISHED)
+        assert (ub.started_at, ub.finished_at, ub.rating) == (dt.date(2026, 11, 1), TODAY, 5)
 
     def test_reread_can_send_new_start_after_old_finish(self):
         # finished_at (2025) is older than the new start; that's fine while not finished.
@@ -183,6 +198,15 @@ class TestLeavingDnf:
         ub = apply(dnf_book(), status=new_status)
         assert ub.status == new_status
         assert (ub.dnf_page, ub.dnf_at, ub.dnf_reason, ub.dnf_note) == (None, None, "", "")
+
+    def test_resume_keeps_original_started_at(self):
+        # dnf -> reading resumes the same read, so the start date stays.
+        ub = apply(dnf_book(started_at=EARLIER), status=S.READING)
+        assert ub.started_at == EARLIER
+
+    def test_resume_without_a_start_date_starts_today(self):
+        ub = apply(dnf_book(started_at=None), status=S.READING)
+        assert ub.started_at == TODAY
 
     def test_resume_keeps_logs(self):
         ub = dnf_book()
@@ -311,3 +335,13 @@ def test_now_uses_local_date_by_default(settings, monkeypatch):
     ub = UserBookFactory()
     apply_shelf_changes(ub, {"status": S.READING})
     assert ub.started_at == TODAY
+
+
+def test_reread_finish_before_new_start_rejected():
+    # Re-read started today (finished -> reading); finishing it on an earlier day is invalid.
+    ub = UserBookFactory(
+        status=S.FINISHED, started_at=FIRST_START, finished_at=OLD_FINISH, rating=5
+    )
+    apply(ub, status=S.READING)
+    errors = rule_errors(ub, status=S.FINISHED, finished_at=dt.date(2026, 11, 10))
+    assert set(errors) == {"started_at"}

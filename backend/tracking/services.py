@@ -5,7 +5,9 @@ and shape, then call it. It mutates the UserBook in memory and leaves saving to 
 
 Status change side effects (old -> new, only when the status actually changes):
 
-    any -> reading       started_at = today if empty
+    finished -> reading  started_at = today (a re-read is a new read)
+    other -> reading     started_at = today only if empty (dnf -> reading resumes the
+                         same read, so its original start is kept)
     any -> finished      finished_at = today (overwrites, so a re-read gets the new date)
     any -> dnf           rating cleared; dnf_at = today; dnf_page = pages logged (capped at
                          page_count, null if no logs); dnf_reason required
@@ -98,7 +100,7 @@ def apply_shelf_changes(
     if leaving == Status.DNF:
         result.update({field: _empty(field) for field in DNF_FIELDS})
 
-    if entering == Status.READING and not user_book.started_at:
+    if entering == Status.READING and (leaving == Status.FINISHED or not user_book.started_at):
         result["started_at"] = today
     elif entering == Status.FINISHED:
         result["finished_at"] = today

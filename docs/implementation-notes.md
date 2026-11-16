@@ -87,7 +87,9 @@ Side effects only happen when the status actually changes. Values sent in the re
 
 | Change | Side effects |
 | --- | --- |
-| any → `reading` | `started_at` = today if empty (a re-read keeps the first read's start unless a new one is sent) |
+| `finished` → `reading` | `started_at` = today, **overwriting** the first read's start, because a re-read is a new read |
+| `want_to_read` → `reading` | `started_at` = today only if empty |
+| `dnf` → `reading` | `started_at` is **kept**, because resuming continues the same read. Filled with today only if empty |
 | any → `finished` | `finished_at` = today, **overwriting** an earlier date, so a re-read marked finished again gets the new date |
 | any → `dnf` | **rating cleared**, because stars and a DNF don't mix. `finished_at` is kept. `dnf_at` = today. `dnf_page` = total pages logged, capped at `page_count`, or null if there are no logs. `dnf_reason` is required |
 | `dnf` → any | all DNF fields cleared (`dnf_page`, `dnf_at`, `dnf_reason`, `dnf_note`). Logs are kept |
