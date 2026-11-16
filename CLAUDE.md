@@ -1,6 +1,6 @@
 # Shelfwise
 
-A personal reading tracker with content-based recommendations and new-release email digests. The full product spec is in `docs/PRD.md`: read it before starting any feature, and treat its requirement IDs (T-1, C-2, R-5 …) as the source of truth for scope.
+A personal reading tracker with content-based recommendations and new-release email digests. The full product spec is in `docs/PRD.md`: read it before starting any feature, and treat its requirement IDs (T-1, C-2, R-5 …) as the source of truth for scope. Decisions made during the build, such as API behavior for T-2 and T-3, are in `docs/implementation-notes.md`. Read the section for a step before starting it.
 
 Version 1 has exactly one user (me), must cost $0/month to host, and doubles as a portfolio project, so code quality, tests and a clear README matter as much as features.
 
