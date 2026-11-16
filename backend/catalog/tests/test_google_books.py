@@ -273,3 +273,36 @@ def test_recorded_search_fixtures_parse(name):
 def test_recorded_volume_fixture_parses():
     result = google_books.parse_volume(load_fixture("google_volume"))
     assert result is not None and result.title and result.authors
+
+
+class TestRecordedResponses:
+    """Raw-vs-parsed checks on the recorded fixtures. They compare what the API actually
+    sent with what we store, so they keep working when the fixtures are re-recorded."""
+
+    def test_volume_description_html_is_cleaned(self):
+        raw = load_fixture("google_volume")["volumeInfo"].get("description", "")
+        result = google_books.parse_volume(load_fixture("google_volume"))
+        assert result is not None
+        if HTML_TAG.search(raw):
+            assert not HTML_TAG.search(result.description)
+        if "<br><br>" in raw or "</p><p>" in raw:
+            assert "\n\n" in result.description  # paragraphs survive as blank lines
+        assert not re.search(r"&(#\d+|[a-z]+);", result.description)
+
+    def test_volume_categories_split_into_genres(self):
+        categories = load_fixture("google_volume")["volumeInfo"].get("categories", [])
+        result = google_books.parse_volume(load_fixture("google_volume"))
+        assert result is not None
+        expected_parts = {
+            part.strip() for c in categories for part in c.split("/") if part.strip() != "General"
+        }
+        assert set(result.genres) == expected_parts
+        assert all("/" not in genre for genre in result.genres)
+
+    def test_search_isbns_come_from_isbn_13_identifiers(self):
+        for item in load_fixture("google_search").get("items", []):
+            identifiers = item["volumeInfo"].get("industryIdentifiers", [])
+            isbn_13s = [i["identifier"] for i in identifiers if i["type"] == "ISBN_13"]
+            result = google_books.parse_volume(item)
+            assert result is not None
+            assert result.isbn_13 == (isbn_13s[0] if isbn_13s else "")

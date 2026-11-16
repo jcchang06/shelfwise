@@ -182,3 +182,38 @@ def test_recorded_search_fixture_parses():
         assert r.isbn_13 == "" or len(r.isbn_13) == 13
         assert r.cover_url == "" or r.cover_url.startswith("https://")
         assert len(r.genres) <= open_library.normalize.MAX_OPEN_LIBRARY_GENRES
+
+
+class TestRecordedResponses:
+    """Raw-vs-parsed checks on the recorded fixtures (see test_google_books)."""
+
+    def test_noise_subjects_dropped(self):
+        for doc in load_fixture("ol_search")["docs"]:
+            result = open_library.parse_search_doc(doc)
+            assert result is not None
+            for genre in result.genres:
+                assert not open_library.normalize._OPEN_LIBRARY_NOISE.search(genre)
+            raw_subjects = doc.get("subject", [])
+            if any("New York Times" in s or s.startswith("nyt:") for s in raw_subjects):
+                assert not any("New York Times" in g or g.startswith("nyt:") for g in result.genres)
+
+    def test_work_merges_with_its_own_search_doc(self):
+        work = load_fixture("ol_work")
+        work_key = work["key"].rsplit("/", 1)[-1]
+        doc = load_fixture("ol_work_search")["docs"][0]
+        assert doc["key"] == work["key"]  # the key: lookup found this exact work
+
+        result = open_library.merge_work(open_library.parse_search_doc(doc), work, work_key)
+
+        assert result is not None and result.source_id == work_key
+        assert result.authors and all(a.open_library_key for a in result.authors)
+        if work.get("description"):
+            assert result.description and "\r" not in result.description
+
+    def test_invalid_cover_ids_skipped(self):
+        work = load_fixture("ol_work")
+        result = open_library.merge_work(None, work, work["key"].rsplit("/", 1)[-1])
+        assert result is not None
+        first_valid = next((c for c in work.get("covers", []) if c > 0), None)
+        if first_valid:
+            assert result.cover_url.endswith(f"/{first_valid}-L.jpg")
