@@ -89,7 +89,9 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LANGUAGE_CODE = "en-us"
-TIME_ZONE = "UTC"
+# The reader's time zone: "today" for default dates (started/finished/DNF) and the
+# calendar for monthly stats. Timestamps are still stored in UTC (USE_TZ).
+TIME_ZONE = env("TIME_ZONE", default="America/Los_Angeles")
 USE_I18N = True
 USE_TZ = True
 
