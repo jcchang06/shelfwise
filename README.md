@@ -19,7 +19,10 @@ Requires Docker.
 cp .env.example .env      # set DJANGO_SECRET_KEY to a long random string
 docker compose up
 docker compose exec backend python manage.py migrate
+docker compose exec backend python manage.py createcachetable
 ```
+
+`createcachetable` creates the table behind Django's database cache. It's needed once per database (local, and Neon in production). The cache holds book API responses, the Google Books quota flag and rate-limit counters. A database cache is used instead of an in-memory one because it's shared by every process and survives Render's free instance sleeping. Tests use an in-memory cache instead.
 
 - API health check: http://localhost:8000/api/health/
 - Frontend: http://localhost:5173
@@ -44,7 +47,15 @@ docker compose exec backend sh -c "ruff check . && ruff format --check ."
 cd frontend && npm run lint && npm run typecheck && npm test
 ```
 
-CI runs all of the above on every push.
+CI runs all of the above on every pull request and on every push to `main`.
+
+Tests never call external APIs. Every HTTP request is mocked with `responses`. The Google Books and Open Library fixtures in `backend/catalog/tests/fixtures/` are trimmed real responses. To refresh them, run this from `backend/`:
+
+```bash
+GOOGLE_BOOKS_API_KEY=... .venv/bin/python scripts/record_fixtures.py
+```
+
+This writes trimmed fixtures, which you commit, and full responses to `fixtures/raw/`, which is gitignored. The API key is stripped from saved URLs and bodies.
 
 ## Layout
 

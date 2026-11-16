@@ -22,6 +22,31 @@ Decisions made while building, which aren't in the PRD. These are the source of 
 - **Token lifetimes:** access tokens last 15 minutes and refresh tokens 7 days. Both are set by environment variables.
 - **No server-side logout yet.** The frontend logs out by discarding its tokens. Revoking tokens on the server would need simplejwt's `token_blacklist` app, which adds a migration. Revisit it if a public beta happens.
 
+## C-1 / C-2: Book search and catalog save (decided Nov 16, 2026)
+
+- **Sources.** Search tries Google Books first. It falls back to Open Library when Google raises an error, times out, is over quota or returns no results. An empty answer from Google still beats an error from Open Library. The code is in `catalog/services/`.
+- **Google request parameters:** `printType=books`, `langRestrict=$BOOK_SEARCH_LANGUAGE` (default `en`), and 20 results per page. A query that is an ISBN-10 or ISBN-13 is sent as `isbn:` to both APIs.
+- **Timeouts and retries:** calls made during a user request get one retry (GET only, on 429 and 5xx) with 3s connect / 5s read timeouts. Background jobs will pass `retries=3`.
+- **Google quota:** a 429, or a 403 with a `*LimitExceeded` reason, sets `google_books:quota_exhausted` in the shared database cache until the next midnight Pacific. While it's set, calls skip Google entirely.
+- **Caching:** Django's database cache, which needs `createcachetable`. Search pages are cached for 24 hours. Google volumes and Open Library works are cached for 7 days. Failures are never cached. Tests use locmem.
+- **Cleaning the data:**
+  - **Descriptions:** block tags become line breaks, then `strip_tags`, then `html.unescape`.
+  - **Google genres:** categories are split on `/`, "General" is dropped, and duplicates are removed.
+  - **Open Library genres:** subjects are filtered for catalog noise and capped at 10.
+  - **Covers:** forced to https.
+- **Saving (`get_or_create_book`):**
+  1. A book with the same source ID is returned without calling the API.
+  2. Otherwise, the oldest book with the same ISBN-13 is reused. Only its empty fields and missing source ID are filled in.
+  3. Otherwise, a new book is created.
+- **Matching authors:**
+  - **By key first:** if the source gives an Open Library author key, match on that.
+  - **Then by name:** otherwise match on the normalized name (lowercase, periods removed, spaces collapsed), picking the oldest match.
+  - **Filling in a key:** a keyless author whose name matches gets the key.
+  - **Different keys:** an author with a different key is treated as a different person.
+- **Author lookup cost:** the name match scans the authors table using a Postgres expression. If the C-3 seed makes this slow, add an indexed `name_normalized` column, which needs a migration.
+- **Open Library User-Agent:** `OPEN_LIBRARY_USER_AGENT` (default `Shelfwise/0.1 (+https://github.com/jcchang06/shelfwise)`).
+- **Open Library save** makes two calls: `works/{key}.json` for the description, and `search.json?q=key:/works/{key}` for authors, ISBN, page count and year.
+
 ## T-2: Shelf API
 
 - **Removing a book from the shelf** deletes its `ReadingLog` rows for that user too. The frontend asks for confirmation first, and the confirmation says how many logs will be deleted.
