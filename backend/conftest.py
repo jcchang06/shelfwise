@@ -9,8 +9,19 @@ def api_client() -> APIClient:
 
 
 @pytest.fixture(autouse=True)
-def _clear_cache():
-    # Throttle counters live in the cache; without this, one test's requests count against the next.
+def _locmem_cache(settings):
+    """Tests use an in-memory cache instead of the production database cache.
+
+    Overriding CACHES makes Django rebuild its cache handlers, so `cache` below is
+    the locmem one. Clearing it keeps throttle counters and API caches from
+    leaking between tests.
+    """
+    settings.CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "shelfwise-tests",
+        }
+    }
     cache.clear()
     yield
     cache.clear()
