@@ -217,3 +217,27 @@ class TestRecordedResponses:
         first_valid = next((c for c in work.get("covers", []) if c > 0), None)
         if first_valid:
             assert result.cover_url.endswith(f"/{first_valid}-L.jpg")
+
+
+class TestRecordedIsbnPreference:
+    """Real Project Hail Mary search doc: its `isbn` list starts with foreign editions."""
+
+    def doc(self):
+        return load_fixture("ol_search")["docs"][0]
+
+    def test_english_isbn_picked_not_first_listed(self, mocked):
+        raw_isbns = self.doc()["isbn"]
+        english = [i for i in raw_isbns if len(i) == 13 and i.startswith(("9780", "9781", "9798"))]
+        assert "9788418037016" in raw_isbns and english  # the fixture still shows the problem
+
+        mocked.get(OL_SEARCH_RE, json=load_fixture("ol_search"))
+        result = open_library.search("project hail mary")[0]
+
+        assert result.title == "Project Hail Mary"
+        assert result.isbn_13 != "9788418037016"
+        assert result.isbn_13 == english[0]
+
+    def test_non_english_setting_keeps_first_listed(self, settings):
+        settings.BOOK_SEARCH_LANGUAGE = "es"
+        result = open_library.parse_search_doc(self.doc())
+        assert result is not None and result.isbn_13 == "9788418037016"

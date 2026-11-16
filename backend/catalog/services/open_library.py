@@ -139,7 +139,7 @@ def parse_search_doc(doc: dict[str, Any]) -> BookResult | None:
         genres=normalize.genres_from_open_library_subjects(doc.get("subject")),
         page_count=doc.get("number_of_pages_median") or None,
         published_date=str(year) if year else "",
-        isbn_13=normalize.first_isbn_13(doc.get("isbn")),
+        isbn_13=normalize.first_isbn_13(doc.get("isbn"), settings.BOOK_SEARCH_LANGUAGE),
         cover_url=_cover_url(doc.get("cover_i")),
     )
 

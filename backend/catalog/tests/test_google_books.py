@@ -305,4 +305,5 @@ class TestRecordedResponses:
             isbn_13s = [i["identifier"] for i in identifiers if i["type"] == "ISBN_13"]
             result = google_books.parse_volume(item)
             assert result is not None
-            assert result.isbn_13 == (isbn_13s[0] if isbn_13s else "")
+            # One of the volume's own ISBN-13s (English preferred when several), or none.
+            assert result.isbn_13 in isbn_13s if isbn_13s else result.isbn_13 == ""

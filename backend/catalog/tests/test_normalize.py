@@ -108,6 +108,33 @@ def test_first_isbn_13_skips_isbn_10():
     assert normalize.first_isbn_13(None) == ""
 
 
+class TestPreferredIsbnLanguage:
+    SPANISH, GERMAN = "9788418037016", "9783453322837"
+
+    @pytest.mark.parametrize("english", ["9780593135204", "9781529157468", "9798217374274"])
+    def test_english_prefixes_win_for_en(self, english):
+        candidates = [self.SPANISH, self.GERMAN, english]
+        assert normalize.first_isbn_13(candidates, "en") == english
+
+    def test_first_english_one_wins_when_several(self):
+        candidates = [self.SPANISH, "9781529157468", "9780593135204"]
+        assert normalize.first_isbn_13(candidates, "en") == "9781529157468"
+
+    def test_979_1_is_not_english(self):
+        # 979-10 is France; only 979-8 is in the English set.
+        # If 979-1 counted as English it would beat the first-listed Spanish ISBN.
+        assert normalize.first_isbn_13([self.SPANISH, "9791028119676"], "en") == self.SPANISH
+
+    def test_falls_back_to_first_valid_when_no_english(self):
+        candidates = ["0593135202", self.SPANISH, self.GERMAN]
+        assert normalize.first_isbn_13(candidates, "en") == self.SPANISH
+
+    @pytest.mark.parametrize("language", [None, "", "fr", "de"])
+    def test_other_languages_keep_first_valid(self, language):
+        candidates = [self.SPANISH, "9780593135204"]
+        assert normalize.first_isbn_13(candidates, language) == self.SPANISH
+
+
 @pytest.mark.parametrize(
     ("url", "expected"),
     [

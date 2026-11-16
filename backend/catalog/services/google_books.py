@@ -168,7 +168,8 @@ def parse_volume(item: dict[str, Any]) -> BookResult | None:
         page_count=info.get("pageCount") or None,
         published_date=info.get("publishedDate") or "",
         isbn_13=normalize.first_isbn_13(
-            i.get("identifier", "") for i in identifiers if i.get("type") == "ISBN_13"
+            (i.get("identifier", "") for i in identifiers if i.get("type") == "ISBN_13"),
+            settings.BOOK_SEARCH_LANGUAGE,
         ),
         cover_url=normalize.https_cover_url(
             images.get("thumbnail") or images.get("smallThumbnail")

@@ -96,12 +96,24 @@ def parse_isbn_query(query: str) -> str | None:
     return None
 
 
-def first_isbn_13(candidates: Iterable[str] | None) -> str:
-    for candidate in candidates or ():
-        bare = _ISBN_CHARS.sub("", candidate)
-        if _ISBN_13.match(bare):
-            return bare
-    return ""
+# ISBN-13 prefixes for English-language registration groups: 978-0 and 978-1, plus 979-8
+# (US, issued since 2020). Note 979-1x is France/Korea/Italy, so it's deliberately not "9791".
+PREFERRED_ISBN_PREFIXES: dict[str, tuple[str, ...]] = {"en": ("9780", "9781", "9798")}
+
+
+def first_isbn_13(candidates: Iterable[str] | None, language: str | None = None) -> str:
+    """Pick one ISBN-13 from a list.
+
+    Open Library's search `isbn` list mixes every edition in no useful order, so for a
+    language with known prefixes (only "en" for now) the first ISBN in that language
+    wins. Otherwise, or if none match, it's the first valid ISBN-13 as before. This keeps
+    the same book from getting a foreign-edition ISBN from one source and the English
+    one from the other, which would defeat ISBN matching on save.
+    """
+    bare = (_ISBN_CHARS.sub("", candidate) for candidate in candidates or ())
+    valid = [isbn for isbn in bare if _ISBN_13.match(isbn)]
+    preferred = PREFERRED_ISBN_PREFIXES.get(language or "", ())
+    return next((isbn for isbn in valid if isbn.startswith(preferred)), valid[0] if valid else "")
 
 
 def https_cover_url(url: str | None) -> str:
