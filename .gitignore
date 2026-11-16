@@ -26,6 +26,7 @@ staticfiles/
 node_modules/
 dist/
 frontend/coverage/
+frontend/.vite/
 *.tsbuildinfo
 
 # Uploaded Goodreads exports (Phase 2) — never commit user data
