@@ -227,6 +227,52 @@ Response: `{year, totals: {pages, finished, dnf, average_rating}, pages_per_mont
   - **Text alternatives:** each chart is a `<figure>` with a written summary (`charts/summaries.ts`) as its caption and as the canvas's label, plus a "Show the numbers" table. Empty data shows a message instead of empty axes.
 - **Year picker:** `?year=` in the URL, defaulting to this year. It offers the years in `books_per_year` plus the current year. The previous year's numbers stay on screen while a new year loads.
 
+## Phase 2: Goodreads import, I-1 to I-4 (decided Nov 16, 2026)
+
+Code lives in the `imports` app. Your real export is **never committed**. `*.csv` is gitignored everywhere, and the only exception is `backend/imports/tests/fixtures/synthetic_*.csv`: made-up books in Goodreads' exact format.
+
+### Parsing and mapping (PR 1: `imports/csv_parser.py`)
+- **The file is checked first.** It must be UTF-8 (a BOM is fine), at most `IMPORT_MAX_FILE_BYTES` (5 MB), have at most `IMPORT_MAX_ROWS` (10,000) rows, and include the Goodreads header columns. A file that fails gets a clear `ImportFileError` and **nothing is saved**.
+- **The CSV is never stored.** Only the columns we use become `ImportRow`s. Private Notes, Owned Copies and similar columns are never read.
+- **Field mapping:**
+  - **ISBN:** `ISBN13`, or `ISBN` converted to 13 digits. The `="…"` wrapping is removed.
+  - **Series:** a trailing "(Series, #N)" or "(Series #N)" is removed from the title for matching and saved as series name and number. Ranges like "#1-3" are left in the title.
+  - **Year:** the original publication year if present, otherwise the year published.
+  - **Review:** cleaned with the same code as descriptions.
+- **Status:** `read` → finished, `currently-reading` → reading, `to-read` → want to read.
+  - **A custom shelf named `dnf` or `did-not-finish`** (any case, exact name) means **DNF, whichever exclusive shelf the row is on**.
+  - **An unknown exclusive shelf** becomes want to read, with a note.
+- **Ratings:** `My Rating` 0 means unrated. A rating is kept **only for finished books**. Any other status, DNF included, drops the rating, with a note.
+- **Bad rows** (no Book Id or title, or the same Book Id twice in one file) become `failed` rows with the reason, and count as processed.
+
+### Matching (PR 2)
+- **Order:** catalog by ISBN-13, then catalog by normalized title + first author, then a Book API by ISBN, then by title + author.
+- **A title + author result is accepted only on an exact normalized title and first-author match.** Anything ambiguous becomes `unmatched` (I-4).
+- **ISBN lookups go to Open Library first,** which has no key or daily quota. I'll check its current rate-limit guidance before building, and throttle to it.
+- **Google is used for title + author searches,** within **`IMPORT_GOOGLE_DAILY_BUDGET`** (default 600 calls per Pacific day), which leaves the rest of the 1,000 for search. When the budget runs out, the import is `paused` and resumes the next day.
+- **`manage.py merge_duplicate_books --dry-run`** finds the same book saved twice in the catalog (normalized title + first author). **It never merges without a `--dry-run` report reviewed first.**
+
+### Processing (I-2, PR 3)
+- **One resumable function,** `process_import_batch(import_id)`, saves after every row.
+- **Each batch is bounded by time** (about **20 seconds**) as well as row count, so a request never reaches gunicorn's 60-second timeout.
+- **It's run by:**
+  - `POST /api/imports/{id}/process/`, called repeatedly while the import page is open (the progress bar follows the counts)
+  - `python manage.py run_import <id>`
+  - a Celery task, **local Docker only**
+  - the **nightly** GitHub Actions job (`run_pending_imports`), which finishes or resumes anything left
+- **The nightly job needs `DATABASE_URL` and `GOOGLE_BOOKS_API_KEY` as GitHub repository secrets.** PR 3 adds the setup steps to the README.
+
+### Re-imports (I-3)
+- **`GoodreadsLink(user, goodreads_book_id → user_book, synced_at)`** is unique per user and Goodreads ID. Two Goodreads editions can link to one shelf entry.
+- **A linked entry is updated only if it's unchanged in Shelfwise since the last sync** (`user_book.updated_at <= link.synced_at`). Otherwise the row is `skipped` with "changed in Shelfwise".
+- **A shelf entry that existed before the import** (added by hand) is linked, and only its **empty** fields are filled in.
+- **Imported DNFs get the reason `other` and the note "Imported from Goodreads"**, because the database requires a reason. **The import summary shows how many imported DNFs still have that placeholder reason, with a link to the DNF shelf**, so you can set real ones (they affect R-5).
+
+### Unmatched rows (I-4, PRs 4–5)
+- **Each unmatched row** shows its Goodreads title, author, ISBN and the reason, with a search box pre-filled with "title author".
+- **Resolve** (`POST /api/imports/{id}/rows/{row}/resolve`) creates the entry from that row. **Dismiss** skips it.
+- **When an import finishes,** matched rows are deleted. Unmatched rows stay until they're resolved or dismissed.
+
 ## Phase 5 backlog
 
 Everything deferred so far, in one place, to pick up in Phase 5 (polish) or sooner if it becomes urgent. Each item links back to where it was decided.

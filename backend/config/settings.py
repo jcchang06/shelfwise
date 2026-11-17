@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     "accounts",
     "catalog",
     "tracking",
+    "imports",
 ]
 
 MIDDLEWARE = [
@@ -202,6 +203,13 @@ MAX_PAGES_PER_DAY = env.int("MAX_PAGES_PER_DAY", default=2000)
 # Genre labels left out of the dashboard's genre mix (T-5), compared case-insensitively.
 # Broad labels like these tag nearly every book and would dwarf the specific genres.
 STATS_EXCLUDED_GENRES = env.list("STATS_EXCLUDED_GENRES", default=["Fiction", "Nonfiction"])
+
+# Goodreads import (Phase 2). The CSV is parsed in memory and never stored.
+IMPORT_MAX_FILE_BYTES = env.int("IMPORT_MAX_FILE_BYTES", default=5 * 1024 * 1024)
+IMPORT_MAX_ROWS = env.int("IMPORT_MAX_ROWS", default=10_000)
+# Google Books calls imports may use per day (Pacific), leaving the rest of the 1,000/day
+# quota for search. When it runs out, an import pauses until the next day.
+IMPORT_GOOGLE_DAILY_BUDGET = env.int("IMPORT_GOOGLE_DAILY_BUDGET", default=600)
 
 # --- Production hardening -----------------------------------------------------
 

@@ -34,4 +34,7 @@ backend/catalog/tests/fixtures/raw/
 
 # Uploaded Goodreads exports (Phase 2) — never commit user data
 *.csv
+# ...except synthetic test fixtures, which must be named synthetic_*.csv (made-up books).
+# A real export (goodreads_library_export.csv) stays ignored even inside fixtures/.
+!backend/imports/tests/fixtures/synthetic_*.csv
 media/
