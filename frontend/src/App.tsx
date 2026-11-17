@@ -6,6 +6,7 @@ import { ServerWakingBanner } from './components/ServerWakingBanner';
 import DashboardPage from './pages/DashboardPage';
 import LoginPage from './pages/LoginPage';
 import NotFoundPage from './pages/NotFoundPage';
+import SearchPage from './pages/SearchPage';
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
           <Route element={<AppShell />}>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/search" element={<SearchPage />} />
           </Route>
         </Route>
         <Route path="*" element={<NotFoundPage />} />
