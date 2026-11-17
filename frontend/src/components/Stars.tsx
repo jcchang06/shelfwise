@@ -24,7 +24,9 @@ export function StarRatingInput({ value, onChange, disabled }: StarRatingInputPr
   const name = useId();
   return (
     <fieldset className="star-rating" disabled={disabled}>
-      <legend>Your rating</legend>
+      <legend>
+        Your rating <span className="field-need">(optional)</span>
+      </legend>
       <div className="star-rating-options">
         {[1, 2, 3, 4, 5].map((stars) => (
           <label key={stars} className={value !== null && stars <= value ? 'is-filled' : ''}>

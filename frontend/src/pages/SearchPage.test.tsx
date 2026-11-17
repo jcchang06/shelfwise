@@ -279,7 +279,7 @@ describe('adding to the shelf', () => {
     const user = userEvent.setup();
     await user.selectOptions(await screen.findByRole('combobox'), 'finished');
 
-    const date = screen.getByLabelText('Finished on');
+    const date = screen.getByLabelText('Finished on (optional)');
     expect(date).toHaveValue(localDateISO());
     expect(date).toHaveAttribute('max', localDateISO());
 
@@ -293,18 +293,34 @@ describe('adding to the shelf', () => {
     ]);
   });
 
+  it('leaves a cleared finished-on date out, so the API uses today', async () => {
+    setup(() => HttpResponse.json(page([result()])));
+    const adds = captureAdds(() =>
+      HttpResponse.json(entry({ status: 'finished' }), { status: 201 }),
+    );
+    renderApp('/search?q=hail');
+    const user = userEvent.setup();
+    await user.selectOptions(await screen.findByRole('combobox'), 'finished');
+    await user.clear(screen.getByLabelText('Finished on (optional)'));
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+
+    expect(await screen.findByText('On your shelf · Finished')).toBeInTheDocument();
+    expect(adds).toEqual([{ source: 'google_books', source_id: 'vol1', status: 'finished' }]);
+  });
+
   it('rejects a future finished-on date without a request', async () => {
     setup(() => HttpResponse.json(page([result()])));
     const adds = captureAdds();
     renderApp('/search?q=hail');
     const user = userEvent.setup();
     await user.selectOptions(await screen.findByRole('combobox'), 'finished');
-    const date = screen.getByLabelText('Finished on');
+    const date = screen.getByLabelText('Finished on (optional)');
     await user.clear(date);
     await user.type(date, '2999-01-01');
     await user.click(screen.getByRole('button', { name: 'Add' }));
 
     expect(date).toHaveAccessibleDescription("The finish date can't be in the future.");
+    expect(date).toHaveFocus();
     expect(adds).toHaveLength(0);
   });
 

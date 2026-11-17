@@ -3,6 +3,7 @@ import { useId, useState, type FormEvent } from 'react';
 import type { ShelfChanges } from '../../api/shelf';
 import type { ShelfEntry } from '../../api/types';
 import { useUpdateShelfEntry } from '../../hooks/useShelf';
+import { FieldLabel } from '../forms/FieldLabel';
 import { StarRatingInput, Stars } from '../Stars';
 import { describeError } from './useFormErrors';
 
@@ -27,10 +28,13 @@ export function RatingReviewForm({ entry, onSaved }: RatingReviewFormProps) {
   if (canRate && rating !== entry.rating) changes.rating = rating;
   if (review !== entry.review) changes.review = review;
   const dirty = Object.keys(changes).length > 0;
+  const [nothingToSave, setNothingToSave] = useState(false);
   const { fields, summary } = describeError(update.error, ['rating', 'review']);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (update.isPending) return; // Save stays enabled; a second press does nothing
+    setNothingToSave(!dirty);
     if (!dirty) return;
     update
       .mutateAsync({ entry, changes })
@@ -54,7 +58,9 @@ export function RatingReviewForm({ entry, onSaved }: RatingReviewFormProps) {
       {fields.rating ? <p className="field-error">{fields.rating}</p> : null}
 
       <div className="form-field">
-        <label htmlFor={`${id}-review`}>Review</label>
+        <FieldLabel htmlFor={`${id}-review`} need="optional">
+          Review
+        </FieldLabel>
         <textarea
           id={`${id}-review`}
           rows={4}
@@ -75,9 +81,10 @@ export function RatingReviewForm({ entry, onSaved }: RatingReviewFormProps) {
           {summary}
         </p>
       ) : null}
-      <button type="submit" disabled={!dirty || update.isPending}>
-        {update.isPending ? 'Saving…' : 'Save rating and review'}
-      </button>
+      <p role="status" className="hint">
+        {nothingToSave ? 'Nothing has changed yet, so there was nothing to save.' : ''}
+      </p>
+      <button type="submit">{update.isPending ? 'Saving…' : 'Save rating and review'}</button>
     </form>
   );
 }

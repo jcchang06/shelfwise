@@ -28,6 +28,11 @@ export const DNF_REASON_LABELS: Record<DnfReason, string> = {
   not_specified: 'Not specified',
 };
 
+/** Reasons offered in forms. Leaving the reason blank saves not_specified (T-6). */
+export const CHOOSABLE_DNF_REASONS = (Object.keys(DNF_REASON_LABELS) as DnfReason[]).filter(
+  (reason) => reason !== 'not_specified',
+);
+
 export type BookSource = 'google_books' | 'open_library';
 
 /** DRF page-number pagination. */

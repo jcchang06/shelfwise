@@ -5,6 +5,8 @@ import type { LogChanges, ReadingLog } from '../../api/logs';
 import { formatDate, localDateISO } from '../../dates';
 import { useBookLogs, useDeleteLog, useUpdateLog } from '../../hooks/useLogs';
 import { ConfirmDialog } from '../ConfirmDialog';
+import { FieldLabel } from '../forms/FieldLabel';
+import { useFocusInvalid } from '../forms/useFocusInvalid';
 import { describeError } from '../shelf/useFormErrors';
 import { parsePages } from './parsePages';
 
@@ -30,6 +32,7 @@ function LogRow({ log, loadedIds, onChanged }: LogRowProps) {
   const [pages, setPages] = useState(String(log.pages_read));
   const [date, setDate] = useState(log.log_date);
   const [clientErrors, setClientErrors] = useState<Record<string, string>>({});
+  const { ref, focusInvalid } = useFocusInvalid();
 
   const server = describeError(update.error, ['pages_read', 'log_date']);
   const errors = { ...server.fields, ...clientErrors };
@@ -46,17 +49,21 @@ function LogRow({ log, loadedIds, onChanged }: LogRowProps) {
 
   function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (update.isPending) return; // Save stays enabled; a second press does nothing
     const problems: Record<string, string> = {};
     const parsed = parsePages(pages);
     if (typeof parsed === 'string') problems.pages_read = parsed;
-    if (!date) problems.log_date = 'Choose a date.';
-    else if (date > today) problems.log_date = "You can't log pages for a future day.";
+    if (date && date > today) problems.log_date = "You can't log pages for a future day.";
     setClientErrors(problems);
-    if (Object.keys(problems).length || typeof parsed === 'string') return;
+    if (Object.keys(problems).length || typeof parsed === 'string') {
+      focusInvalid();
+      return;
+    }
 
     const changes: LogChanges = {};
     if (parsed !== log.pages_read) changes.pages_read = parsed;
-    if (date !== log.log_date) changes.log_date = date;
+    // A blank date keeps the log's day: it's left out, never sent as null (T-8).
+    if (date && date !== log.log_date) changes.log_date = date;
     if (!Object.keys(changes).length) {
       setEditing(false);
       return;
@@ -67,7 +74,7 @@ function LogRow({ log, loadedIds, onChanged }: LogRowProps) {
         setEditing(false);
         onChanged(`Saved ${formatDate(saved.log_date)}: ${saved.pages_read} pages.`);
       })
-      .catch(() => undefined); // shown from update.error
+      .catch(() => focusInvalid()); // the error itself is shown from update.error
   }
 
   function confirmDelete() {
@@ -85,15 +92,19 @@ function LogRow({ log, loadedIds, onChanged }: LogRowProps) {
     return (
       <li id={rowId(log.id)} tabIndex={-1} className="log-row is-editing">
         <form
+          ref={ref}
           onSubmit={handleSave}
           noValidate
           aria-label={`Edit the log for ${formatDate(log.log_date)}`}
         >
           <div className="log-form-row">
             <div className="form-field">
-              <label htmlFor={`${id}-pages`}>Pages read</label>
+              <FieldLabel htmlFor={`${id}-pages`} need="required">
+                Pages read
+              </FieldLabel>
               <input
                 id={`${id}-pages`}
+                required
                 type="number"
                 inputMode="numeric"
                 min={1}
@@ -105,7 +116,9 @@ function LogRow({ log, loadedIds, onChanged }: LogRowProps) {
               />
             </div>
             <div className="form-field">
-              <label htmlFor={`${id}-date`}>Date</label>
+              <FieldLabel htmlFor={`${id}-date`} need="optional">
+                Date
+              </FieldLabel>
               <input
                 id={`${id}-date`}
                 type="date"
@@ -113,12 +126,19 @@ function LogRow({ log, loadedIds, onChanged }: LogRowProps) {
                 max={today}
                 onChange={(event) => setDate(event.target.value)}
                 aria-invalid={errors.log_date ? true : undefined}
-                aria-describedby={errors.log_date ? errorId('log_date') : undefined}
+                aria-describedby={
+                  [errors.log_date ? errorId('log_date') : '', date ? '' : `${id}-date-hint`]
+                    .filter(Boolean)
+                    .join(' ') || undefined
+                }
               />
+              {date ? null : (
+                <p id={`${id}-date-hint`} className="hint">
+                  Left blank, this keeps {formatDate(log.log_date)}.
+                </p>
+              )}
             </div>
-            <button type="submit" disabled={update.isPending}>
-              {update.isPending ? 'Saving…' : 'Save'}
-            </button>
+            <button type="submit">{update.isPending ? 'Saving…' : 'Save'}</button>
             <button type="button" className="button-secondary" onClick={() => setEditing(false)}>
               Cancel
             </button>

@@ -153,7 +153,7 @@ describe('quick log', () => {
   it('logs today with Enter, clears the input, and updates the card', async () => {
     const calls = setup({ entries: [reading(1, 'Dune', { pages_logged: 100 })] });
     renderApp('/dashboard');
-    const input = await screen.findByLabelText('Pages read today for Dune');
+    const input = await screen.findByLabelText('Pages read today for Dune (required)');
     expect(input).toHaveAttribute('inputmode', 'numeric'); // number pad on phones
 
     await userEvent.setup().type(input, '25{Enter}');
@@ -169,7 +169,7 @@ describe('quick log', () => {
     setup({ entries: [reading(1, 'Dune')] });
     renderApp('/dashboard');
     const user = userEvent.setup();
-    const input = await screen.findByLabelText('Pages read today for Dune');
+    const input = await screen.findByLabelText('Pages read today for Dune (required)');
     await user.type(input, '10{Enter}');
     await within(card('Dune')).findByText('Today: 10 pages');
     await user.type(input, '5{Enter}');
@@ -179,9 +179,10 @@ describe('quick log', () => {
   it('rejects invalid pages without a request and keeps what was typed', async () => {
     const calls = setup({ entries: [reading(1, 'Dune')] });
     renderApp('/dashboard');
-    const input = await screen.findByLabelText('Pages read today for Dune');
+    const input = await screen.findByLabelText('Pages read today for Dune (required)');
     await userEvent.setup().type(input, '0{Enter}');
     expect(input).toHaveAccessibleDescription('Log at least 1 page.');
+    expect(input).toHaveFocus();
     expect(input).toHaveValue(0);
     expect(calls.posts).toHaveLength(0);
   });
@@ -201,7 +202,7 @@ describe('quick log', () => {
       ),
     );
     renderApp('/dashboard');
-    const input = await screen.findByLabelText('Pages read today for Dune');
+    const input = await screen.findByLabelText('Pages read today for Dune (required)');
     await userEvent.setup().type(input, '3000{Enter}');
     await waitFor(() => expect(input).toHaveAccessibleDescription(/limit is 2000/));
     expect(input).toHaveValue(3000);
