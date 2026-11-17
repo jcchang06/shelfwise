@@ -147,3 +147,16 @@ def apply_shelf_changes(
 
     for field, value in final.items():
         setattr(user_book, field, value)
+
+
+def shelf_entries_for(user, book_ids) -> dict[int, dict[str, Any]]:
+    """{book_id: {"id": user_book_id, "status": status}} for the books on `user`'s shelf.
+
+    One query. Used by book search to mark results already shelved; always computed per
+    request (never cached), since it depends on the user and changes as they add books.
+    """
+    ids = [book_id for book_id in book_ids if book_id is not None]
+    if not ids:
+        return {}
+    rows = UserBook.objects.filter(user=user, book_id__in=ids).values("id", "book_id", "status")
+    return {row["book_id"]: {"id": row["id"], "status": row["status"]} for row in rows}
