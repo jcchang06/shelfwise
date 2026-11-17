@@ -308,97 +308,16 @@ Matching tries the cheapest source first:
   - **A finished import** adjusts its stored counts in place, using `F()` expressions, and **deletes** the resolved or dismissed row (privacy). A row that fails stays, with its reason.
   - **An import still running or paused** keeps the row's new state and recalculates its counts from the rows. Finishing deletes created, updated, skipped **and dismissed** rows.
 
-## Dashboard (built Nov 16, 2026)
-
-- **Layout:** **"Log today's pages" comes first**, because it's the daily action and it's what a phone shows above the fold. Then the year picker, the totals and the four T-5 charts.
-- **Phone-first:** the cards are full width (2 columns from 48rem), and inputs are 16px (so iOS doesn't zoom) with `inputMode="numeric"` and 44px touch targets.
-- **Quick log** (one card per book on Reading):
-  - shows "Today: N pages", from `GET /api/logs/?from=<today>&to=<today>`
-  - type a number and press Enter; the date is always today
-  - the input **clears after a successful log**
-  - logging the same day again adds to it, and progress and "Today" update
-  - past days are logged on the book page
-- **Charts:** Chart.js through react-chartjs-2, **lazy-loaded** (`DashboardCharts` chunk, about 55 KB gzipped), so other pages never download it. The build confirms the main bundle doesn't contain it.
-  - **Colors:** the dataviz skill's reference palette, slots 1–2. Blue is finished/read and orange is DNF, stored as CSS tokens `--series-1` and `--series-2` with their own light and dark steps. Both pairs were validated against our surfaces (`#ffffff` and `#1c1917`): color-blind ΔE 24.7 light and 26.8 dark, both ≥ 3:1 contrast. Chart.js reads the tokens at render time and again when the system theme changes.
-  - **Marks:** bars at most 24px thick, a 4px rounded data end (only the outermost segment of a stack), a 2px surface-colored gap between stacked segments, hairline grids, one tooltip covering every series, a legend for two series and none for one.
-  - **Text alternatives:** each chart is a `<figure>` with a written summary (`charts/summaries.ts`) as its caption and as the canvas's label, plus a "Show the numbers" table. Empty data shows a message instead of empty axes.
-- **Year picker:** `?year=` in the URL, defaulting to this year. It offers the years in `books_per_year` plus the current year. The previous year's numbers stay on screen while a new year loads.
-
-## Phase 2: Goodreads import, I-1 to I-4 (decided Nov 16, 2026)
-
-Code lives in the `imports` app. Your real export is **never committed**. `*.csv` is gitignored everywhere, and the only exception is `backend/imports/tests/fixtures/synthetic_*.csv`: made-up books in Goodreads' exact format.
-
-### Parsing and mapping (PR 1: `imports/csv_parser.py`)
-- **The file is checked first.** It must be UTF-8 (a BOM is fine), at most `IMPORT_MAX_FILE_BYTES` (5 MB), have at most `IMPORT_MAX_ROWS` (10,000) rows, and include the Goodreads header columns. A file that fails gets a clear `ImportFileError` and **nothing is saved**.
-- **The CSV is never stored.** Only the columns we use become `ImportRow`s. Private Notes, Owned Copies and similar columns are never read.
-- **Field mapping:**
-  - **ISBN:** `ISBN13`, or `ISBN` converted to 13 digits. The `="…"` wrapping is removed.
-  - **Series:** a trailing "(Series, #N)" or "(Series #N)" is removed from the title for matching and saved as series name and number. Ranges like "#1-3" are left in the title.
-  - **Year:** the original publication year if present, otherwise the year published.
-  - **Review:** cleaned with the same code as descriptions.
-- **Status:** `read` → finished, `currently-reading` → reading, `to-read` → want to read.
-  - **A custom shelf named `dnf` or `did-not-finish`** (any case, exact name) means **DNF, whichever exclusive shelf the row is on**.
-  - **An unknown exclusive shelf** becomes want to read, with a note.
-- **Ratings:** `My Rating` 0 means unrated. A rating is kept **only for finished books**. Any other status, DNF included, drops the rating, with a note.
-- **Bad rows** (no Book Id or title, or the same Book Id twice in one file) become `failed` rows with the reason, and count as processed.
-
-### Matching (PR 2: `imports/matching.py`)
-
-Matching tries the cheapest source first:
-1. **The catalog, by ISBN-13** (the oldest book with it).
-2. **The catalog, by first author plus normalized title.** Authors use the existing name normalization. Titles use `normalize_title`: the main title before ":", trailing "(…)" or "[…]" removed, accents stripped, "&" read as "and", punctuation removed, lowercase.
-3. **Open Library, by ISBN, in batches.**
-4. **Google Books, by title plus author,** within the budget.
-
-- **Open Library's rules,** checked Nov 2026 at openlibrary.org/developers/api:
-  - **1 request per second** for clients that don't include a contact email in the User-Agent (ours doesn't), and 3 per second with one.
-  - **Don't make "hundreds of single-book requests"; use `search.json` for batches.**
-- **What we do about it:**
-  - **ISBNs are looked up 40 per request** (`q=isbn:(… OR …)`, via `prefetch_isbns`), only for ISBNs not already in the catalog.
-  - **Every Open Library call is throttled** to `OPEN_LIBRARY_REQUESTS_PER_SECOND` (default 1, shared by the whole process).
-  - **To get 3 per second,** add a contact to `OPEN_LIBRARY_USER_AGENT` and raise the setting. We don't put an email there by default.
-- **Vetting ISBN hits:** some Open Library ISBNs are attached to the wrong work. In testing, a fake ISBN came back as an unrelated Spanish book. A hit is used only if `titles_compatible` (equal titles, one a prefix of the other, or at least half the words shared). Otherwise the row moves on to title plus author, and the note explains what happened.
-- **Title-plus-author matches are strict:** a result needs an exact normalized title **and** the row's first author among its authors. Near misses become unmatched rather than being guessed.
-- **No single-book requests:** external hits are saved straight from the batch or search result (`catalog.save_book_result`), never through a follow-up `get_volume` or `get_work`.
-  - **The cost:** books saved from Open Library this way have **no description**. Descriptions should be filled in by a throttled scheduled job **before Phase 3**, because TF-IDF needs them. The PRD already assigns metadata lookups for new books to scheduled jobs.
-- **Google budget:** `spend_google_call()` counts one call against `IMPORT_GOOGLE_DAILY_BUDGET` **before** each title search. It's counted conservatively, so a search served from the cache still counts. The counter is per Pacific day and lives in the shared cache. When the budget runs out, or Google's own quota flag is set, matching raises `MatchPausedError`: the row stays pending and the import pauses until the next day.
-- **Duplicates:** `manage.py merge_duplicate_books --dry-run` prints the merge plan and a **plan token**.
-  - **Merging needs `--apply <token>`,** and it refuses if the catalog has changed since the dry run. Running it with neither option refuses too, so nothing can be merged without a dry run first.
-  - **Groups are books with the same normalized title and first author.** The oldest book is kept. Books with no author are never grouped.
-  - **A group is never merged automatically** when one user has shelf entries or logs on more than one of its books; it's reported instead.
-  - **What a merge does:** shelf entries, logs and import rows are moved to the kept book, its empty fields are filled from the duplicate, and the duplicate is deleted.
-
-### Processing (I-2, PR 3: `imports/processing.py`, `imports/apply.py`)
-- **One resumable function,** `process_import_batch(import_id)`, does the work:
-  - **It stops after `IMPORT_BATCH_SECONDS`** (20), well inside gunicorn's 60-second timeout.
-  - **It saves after every row,** so an interruption just means the next batch resumes.
-  - **It prefetches ISBNs once per batch,** up to 200 rows.
-  - **A lock in the shared cache** stops two callers from processing the same import at once. The second caller gets `ImportBusyError`, and the API answers **409**.
-- **It's run by:**
-  - **The import page,** which calls `POST /api/imports/{id}/process/` repeatedly while it's open.
-  - **`manage.py run_import <id>`,** which loops until the import is done or paused.
-  - **`manage.py run_pending_imports`,** run by the **nightly job** (`.github/workflows/jobs-nightly.yml`, 10:00 UTC = 02:00 PST). It handles every pending, running or paused import, oldest first, within `--max-minutes` (20). If one import pauses on the budget it stops, because the others would pause too.
-  - **A Celery task, local Docker only.** The `worker` service sets `IMPORTS_USE_CELERY=true`, and a new upload is handed to it. **Celery is only in `requirements-dev.txt`.** Production never installs or imports it; a production-only virtualenv was checked: `manage.py check`, the import views and `run_pending_imports` all work.
-- **The nightly job's repository secrets** are `DATABASE_URL` and `GOOGLE_BOOKS_API_KEY`. The setup is in README → Deploy → Nightly jobs, using `gh secret set`, which prompts without echoing. The job fails fast, naming any secret that's missing.
-- **The upload is kept in memory only.** By default, Django writes uploads larger than 2.5 MB to a temporary file on disk. `FILE_UPLOAD_HANDLERS` is set to the memory handler alone, with `FILE_UPLOAD_MAX_MEMORY_SIZE = IMPORT_MAX_FILE_BYTES`. Larger uploads are rejected as too large, based on `CONTENT_LENGTH`.
-- **When an import finishes,** created, updated and skipped rows are deleted, and the stored counters become the record. Unmatched rows (I-4) and failed rows, which keep their reasons, stay.
-- **Applying a match to the shelf** goes through `apply_shelf_changes` with **explicit** values, so no "today" defaults sneak in:
-  - **A finished book with no Goodreads date stays undated,** and is counted under "Date unknown" in the stats.
-  - **A currently-reading book gets no invented start date.**
-  - **A date in the future is a rule error,** and the row fails.
-  - **The shelf entry's `created_at` is set to Goodreads' "Date Added",** so "Added …" on the shelf is accurate.
-  - **An empty series on the catalog book is filled from Goodreads.**
-
-### Re-imports (I-3)
-- **`GoodreadsLink(user, goodreads_book_id → user_book, synced_at)`** is unique per user and Goodreads ID. Two Goodreads editions can link to one shelf entry.
-- **A linked entry is updated only if it's unchanged in Shelfwise since the last sync** (`user_book.updated_at <= link.synced_at`). Otherwise the row is `skipped` with "changed in Shelfwise".
-- **A shelf entry that existed before the import** (added by hand) is linked, and only its **empty** fields are filled in.
-- **Imported DNFs get the reason `other` and the note "Imported from Goodreads"**, because the database requires a reason. **The import summary shows how many imported DNFs still have that placeholder reason, with a link to the DNF shelf**, so you can set real ones (they affect R-5).
-
-### Unmatched rows (I-4, PRs 4–5)
-- **Each unmatched row** shows its Goodreads title, author, ISBN and the reason, with a search box pre-filled with "title author".
-- **Resolve** (`POST /api/imports/{id}/rows/{row}/resolve`) creates the entry from that row. **Dismiss** skips it.
-- **When an import finishes,** matched rows are deleted. Unmatched rows stay until they're resolved or dismissed.
+### Import page (PR 5: frontend)
+- **`/import`:** the upload form, which checks for a `.csv` of at most 5 MB before sending and explains how to export from Goodreads and that the file is never stored. Below it, past imports. **Import** is in the navigation.
+- **`/import/:id`:** while the import is pending or running, `useImportRunner` calls `POST /process/` **back to back**, about 20 seconds each, and updates the progress bar ("N of M rows").
+  - **A 409** means the nightly job or the local Celery worker holds the import: "Another process is working on this import…". The runner waits `BUSY_RETRY_MS` (5 seconds), refreshes the import and tries again.
+  - **A pause** shows the reason, "It will continue automatically tonight", and a **try again now** button.
+  - **Closing the page** just stops the runner; the nightly job finishes the rest.
+  - **There's no "already running" guard,** because StrictMode runs effects twice in development. A duplicate run hits the server's lock (409) and waits.
+- **When it's done,** a summary shows the counts, plus "**N imported DNFs still have the placeholder reason**" with a link to `/shelf?status=dnf`.
+- **Books that need a match:** each one shows its Goodreads details and the reason. **Find a match** opens a search pre-filled with `search_query`, with Google attribution, a "View on …" link per result and **Use this book**, which resolves with `{book_id}` or `{source, source_id}`. **Dismiss** skips the row. Failed rows are listed with their reasons in a `<details>`.
+- **Uploads** go through `apiPostForm`, and the client no longer sets `Content-Type` for `FormData`, so the browser adds the multipart boundary itself.
 
 ## Phase 5 backlog
 
