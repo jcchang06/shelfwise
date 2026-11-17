@@ -1,11 +1,27 @@
-import { Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 
-import HomePage from './pages/HomePage';
+import { RequireAuth } from './auth/RequireAuth';
+import { AppShell } from './components/AppShell';
+import { ServerWakingBanner } from './components/ServerWakingBanner';
+import DashboardPage from './pages/DashboardPage';
+import LoginPage from './pages/LoginPage';
+import NotFoundPage from './pages/NotFoundPage';
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<HomePage />} />
-    </Routes>
+    <>
+      {/* Outside the routes so it also shows on /login during a cold start. */}
+      <ServerWakingBanner />
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route element={<RequireAuth />}>
+          <Route element={<AppShell />}>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
+          </Route>
+        </Route>
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </>
   );
 }

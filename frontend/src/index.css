@@ -1,4 +1,47 @@
+/* Color tokens. Text/background pairs meet WCAG AA contrast in both themes. */
 :root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --surface: #f5f5f4;
+  --text: #1c1917;
+  --text-muted: #57534e;
+  --border: #d6d3d1;
+  --accent: #1d4ed8;
+  --accent-text: #ffffff;
+  --focus: #1d4ed8;
+  --error: #b91c1c;
+  --error-bg: #fef2f2;
+  --notice-bg: #eff6ff;
+  --waking-bg: #fef3c7;
+  --waking-text: #78350f;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1917;
+    --surface: #292524;
+    --text: #f5f5f4;
+    --text-muted: #d6d3d1;
+    --border: #57534e;
+    --accent: #93c5fd;
+    --accent-text: #1c1917;
+    --focus: #93c5fd;
+    --error: #fca5a5;
+    --error-bg: #450a0a;
+    --notice-bg: #172554;
+    --waking-bg: #451a03;
+    --waking-text: #fde68a;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
   font-family:
     system-ui,
     -apple-system,
@@ -6,12 +49,8 @@
     Roboto,
     sans-serif;
   line-height: 1.5;
-  color: #1a1a1a;
-  background-color: #ffffff;
-}
-
-body {
-  margin: 0;
+  color: var(--text);
+  background-color: var(--bg);
 }
 
 main {
@@ -20,7 +59,155 @@ main {
   padding: 1rem;
 }
 
+main:focus {
+  outline: none; /* focused programmatically by the skip link */
+}
+
 :focus-visible {
-  outline: 3px solid #1d4ed8;
+  outline: 3px solid var(--focus);
   outline-offset: 2px;
+}
+
+a {
+  color: var(--accent);
+}
+
+.skip-link {
+  position: absolute;
+  left: 0.5rem;
+  top: -3rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--accent);
+  color: var(--accent-text);
+  z-index: 10;
+}
+
+.skip-link:focus {
+  top: 0.5rem;
+}
+
+.app-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+}
+
+.app-nav a {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.app-nav a.active {
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+
+.app-nav .brand {
+  font-weight: 700;
+}
+
+.app-user {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--text-muted);
+  min-width: 0;
+}
+
+.app-user-email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Cold-start banner: empty (and invisible) unless a request is slow. */
+.server-waking:not(:empty) {
+  padding: 0.5rem 1rem;
+  background: var(--waking-bg);
+  color: var(--waking-text);
+  text-align: center;
+}
+
+.auth-page {
+  max-width: 24rem;
+  padding-top: 3rem;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+}
+
+input {
+  font: inherit;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--bg);
+  color: var(--text);
+}
+
+input[aria-invalid='true'] {
+  border-color: var(--error);
+}
+
+.field-error {
+  margin: 0;
+  color: var(--error);
+  font-size: 0.875rem;
+}
+
+button {
+  font: inherit;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--accent);
+  border-radius: 0.375rem;
+  background: var(--accent);
+  color: var(--accent-text);
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.button-secondary {
+  background: transparent;
+  color: var(--accent);
+}
+
+.error-summary,
+.notice {
+  padding: 0.75rem 1rem;
+  border-radius: 0.375rem;
+}
+
+.error-summary {
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+.notice {
+  background: var(--notice-bg);
+}
+
+.page-status {
+  max-width: 960px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+  color: var(--text-muted);
 }
