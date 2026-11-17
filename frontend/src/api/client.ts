@@ -20,8 +20,10 @@ import {
   setRefreshToken,
 } from './tokens';
 
+// The localhost fallback exists only in dev and tests. Production builds can't get here
+// without a real https URL: vite.config.ts fails the build (build/apiBaseUrl.ts).
 export const API_BASE_URL: string =
-  import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api';
+  import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:8000/api' : '');
 
 /** Long enough to ride out a free-tier cold start (~1 minute). */
 export const REQUEST_TIMEOUT_MS = 90_000;

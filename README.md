@@ -29,6 +29,35 @@ docker compose exec backend python manage.py createcachetable
 - API health check: http://localhost:8000/api/health/
 - Frontend: http://localhost:5173
 
+## Frontend development
+
+Run these from `frontend/`:
+
+| Command | Talks to |
+| --- | --- |
+| `npm run dev` | whatever `VITE_API_BASE_URL` resolves to (see below). With only the repo's `.env`, that's the local API at `http://localhost:8000/api` |
+| `npm run dev:live` | the live API, `https://shelfwise-api-et8p.onrender.com/api`. Its CORS settings allow `http://localhost:5173` |
+
+When the dev server starts, it prints the API it's using, `➜  API: …`. Check that line whenever requests seem to go to the wrong place.
+
+**Where Vite reads `VITE_*` variables from.** `vite.config.ts` sets `envDir: '..'`, so Vite reads env files from the **repo root**, the same files as the backend, **not** from `frontend/`. A `frontend/.env.local` is never read. Put personal overrides in the root `.env.local`, which is gitignored. Highest priority first:
+
+1. **Variables already in your shell**, including inline ones like `VITE_API_BASE_URL=… npm run dev`. These beat every file.
+2. `.env.[mode].local`, then `.env.[mode]`, for example `.env.production` during a build.
+3. `.env.local`
+4. `.env`
+
+**Watch for a variable your shell already has.** Some editors load `.env` into new terminals. VS Code's Python extension can do this, which exports `VITE_API_BASE_URL=http://localhost:8000/api` and silently beats your `.env.local`. To check and fix:
+
+```zsh
+echo $VITE_API_BASE_URL
+unset VITE_API_BASE_URL
+```
+
+`npm run dev:live` sets the URL inline, so it wins even then.
+
+**Production builds** (`npm run build`) **fail** unless `VITE_API_BASE_URL` is an `https://` URL that isn't localhost. That way the deployed site can never quietly point at your machine. CI and Render set it; the check is in `frontend/build/apiBaseUrl.ts`.
+
 ## API
 
 All endpoints are under `/api/` and return JSON. Authenticated endpoints expect `Authorization: Bearer <access token>`.
