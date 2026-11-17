@@ -178,3 +178,12 @@ def test_title_author_search_is_cached(mocked):
     first = open_library.search_title_author("Dune", "Frank Herbert")
     second = open_library.search_title_author("dune", "frank herbert")
     assert first == second and first[0].source_id == "OL1W" and len(mocked.calls) == 1
+
+
+def test_urllib3_retry_warnings_are_silenced():
+    """They include the full URL, and Google's query string has the API key."""
+    import logging
+
+    logger = logging.getLogger("urllib3.connectionpool")
+    assert not logger.isEnabledFor(logging.WARNING)
+    assert logger.isEnabledFor(logging.ERROR)

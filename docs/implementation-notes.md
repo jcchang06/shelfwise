@@ -363,6 +363,20 @@ Running it on your real export (433 rows) turned up four problems, now fixed:
    - **Google by ISBN:** when Open Library doesn't know an ISBN, matching makes **one budgeted Google lookup by ISBN**, accepted if the titles are compatible.
    - **Open Library by title and author:** when Google has no exact title-and-author match, matching tries **Open Library's title and author search**, which is throttled, uses no Google budget, and has the same exact-match rule.
 
+## C-6: Nightly metadata enrichment (Phase 3 PR 3)
+
+`catalog/services/enrichment.py`, run as `enrich_books --max-minutes 15` by the second job in `jobs-nightly.yml`.
+
+- **Which books:** missing a description or genres, with an Open Library key or an ISBN-13 to look up, and not checked in the last 30 days (`Book.enrichment_checked_at`). Books never checked go first.
+- **Books with only an ISBN:** one batched ISBN search per 40 books (decision 5). A work counts only if `titles_compatible` with the book's title. The key is saved on the book unless another catalog book already has it; that's a duplicate for `merge_duplicate_books --dry-run`, and this book is still filled from the work.
+- **Filling:** `open_library.get_work` (two requests: the work and its search doc, cached 7 days). Only empty fields are filled, using filtered updates, so a description or genres added in the meantime is never overwritten.
+- **Author keys:** each of the book's authors without an Open Library key gets the work's key for the same normalized name, unless another author row already has that key. That's the same author under another spelling; author rows aren't merged, so it's counted and left as is. Author pages (C-5) need these keys.
+- **Checked vs failed:** a book looked up, found or not, gets `enrichment_checked_at` (without touching `updated_at`). A lookup that still fails after 3 attempts (2s and 5s apart, on top of the HTTP session's own retry) leaves the book unmarked for the next run. 5 failures in a row stop the run.
+- **Output is aggregate only:** counts filled, keys found, not found and failed, then the coverage: "still without a description: N of M (X%)", the same for genres, and how many books missing data have no key or ISBN to look up.
+- **Rate:** Open Library's 1 request per second, shared with every other Open Library caller in the process. About 1.6 seconds a book, so roughly 550 books in 15 minutes. The job runs after imports (`needs: imports`, `if: !cancelled()`), never alongside, so two processes never call Open Library at once.
+- **First local run** (the 400-book catalog from the PR 6 report): 203 books due; 100 descriptions and 23 genre lists filled, 37 Open Library keys found by ISBN, 20 author keys filled, 36 not found. Afterwards **51 of 400 books (13%) had no description** and 68 (17%) had no genres. Of the 68 without genres, 36 have an Open Library work with no usable subjects (none, or only ones the noise filter drops), and 32 have no Open Library work at all (no key, and no compatible ISBN match). So more genres would need another source, such as Google categories; worth revisiting before R-1.
+- **urllib3 logging is set to ERROR** (settings `LOGGING`). Its retry warnings print the full request URL, query string included: the Google API key, and on Open Library the ISBNs being looked up. A dropped connection during this run printed one. `http.py`'s own warnings already leave the query string out.
+
 ## Phase 5 backlog
 
 Everything deferred so far, in one place, to pick up in Phase 5 (polish) or sooner if it becomes urgent. Each item links back to where it was decided.

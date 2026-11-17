@@ -86,6 +86,7 @@ docker compose exec backend python manage.py run_import <id>   # process one Goo
 docker compose exec backend python manage.py run_pending_imports  # what the nightly job runs
 docker compose exec backend python manage.py merge_duplicate_books --dry-run  # then --apply <token>
 docker compose exec backend python manage.py goodreads_match_report <csv>  # match rate, no shelf changes
+docker compose exec backend python manage.py enrich_books --limit 20  # fill descriptions/genres from Open Library (nightly job)
 docker compose exec backend python manage.py makemigrations <app>
 docker compose exec backend pytest        # runs with coverage, fails under 70%
 docker compose exec backend sh -c "ruff check . && ruff format --check ."

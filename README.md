@@ -197,7 +197,10 @@ The `shelfwise` static site in `render.yaml` builds `frontend/` and publishes `f
 
 Production has no always-on worker, so scheduled work runs in [`.github/workflows/jobs-nightly.yml`](.github/workflows/jobs-nightly.yml). It runs every night at 02:00 Pacific (03:00 in daylight time) as plain Django management commands against Neon.
 
-For now it runs one job, `run_pending_imports`. That finishes Goodreads imports whose page was closed before they finished, and resumes imports that paused because the day's Google budget ran out.
+It runs two jobs, one after the other:
+
+1. **`run_pending_imports`** finishes Goodreads imports whose page was closed before they finished, and resumes imports that paused because the day's Google budget ran out.
+2. **`enrich_books`** fills in missing descriptions and genres from Open Library (up to 15 minutes a night), then prints how many books still have none. It runs even if the imports job failed, and never at the same time, since both call Open Library. It uses only `DATABASE_URL`.
 
 **Set it up once.** The workflow needs two **repository secrets**.
 
@@ -211,11 +214,11 @@ For now it runs one job, `run_pending_imports`. That finishes Goodreads imports 
    Or use the web: the repo → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**, once for each.
    - `DATABASE_URL`: the same Neon **direct** connection string as on Render.
    - `GOOGLE_BOOKS_API_KEY`: the same key as on Render.
-2. **Check it works.** Go to the repo → **Actions** → **Nightly jobs** → **Run workflow**. The run's **"Show which database this is"** step should print the `ep-….neon.tech` host, and **"Finish or resume unfinished imports"** should print "No unfinished imports." If a secret is missing, the job fails straight away and names it.
+2. **Check it works.** Go to the repo → **Actions** → **Nightly jobs** → **Run workflow**. The run's **"Show which database this is"** step should print the `ep-….neon.tech` host, **"Finish or resume unfinished imports"** should print "No unfinished imports.", and the second job's last step should print "Catalog coverage after this run". If a secret is missing, the job fails straight away and names it.
 
 **Notes:**
 - **Nightly runs don't count against the free-tier Actions minutes,** because the repo is public.
-- **They wake Neon for a few minutes,** which comes out of its 100 compute-hours a month.
+- **They wake Neon for up to about 35 minutes** (imports, then enrichment), which comes out of its 100 compute-hours a month. Once the catalog is enriched, enrichment finishes in a minute or two.
 
 ## Layout
 
