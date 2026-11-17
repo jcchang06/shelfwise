@@ -4,7 +4,9 @@ import { sourcePageUrl } from '../api/books';
 import { SHELF_STATUS_LABELS, type SearchResult } from '../api/types';
 import { yearOf } from '../dates';
 import { AddToShelfForm } from './AddToShelfForm';
+import { AuthorNames } from './AuthorNames';
 import { BookCover } from './BookCover';
+import { MetaParts } from './MetaParts';
 
 interface SearchResultItemProps {
   result: SearchResult;
@@ -15,7 +17,7 @@ const SOURCE_NAMES = { google_books: 'Google Books', open_library: 'Open Library
 
 export function SearchResultItem({ result, onAdded }: SearchResultItemProps) {
   const meta = [
-    result.authors.join(', '),
+    result.author_links.length ? <AuthorNames authors={result.author_links} /> : '',
     result.published_date ? yearOf(result.published_date) : '',
     result.page_count ? `${result.page_count} pages` : '',
   ].filter(Boolean);
@@ -25,7 +27,11 @@ export function SearchResultItem({ result, onAdded }: SearchResultItemProps) {
       <BookCover url={result.cover_url} />
       <div className="search-result-body">
         <h2 className="search-result-title">{result.title}</h2>
-        {meta.length ? <p className="search-result-meta">{meta.join(' · ')}</p> : null}
+        {meta.length ? (
+          <p className="search-result-meta">
+            <MetaParts parts={meta} />
+          </p>
+        ) : null}
         {result.description ? (
           <p className="search-result-description">{result.description}</p>
         ) : null}

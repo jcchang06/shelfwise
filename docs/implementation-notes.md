@@ -406,6 +406,16 @@ Running it on your real export (433 rows) turned up four problems, now fixed:
 - **Author IDs for links:** search results and shelf entries gain `author_links: [{id, name}]`. `authors` stays a list of names, so the deployed frontend keeps working until PR 5. Search matches authors by Open Library key, then normalized name, in two queries per page; `id` is null for an author not in the catalog (decision 3).
 - **Local check** (top 5 authors by catalog books, live Open Library): every key was already set by the import and enrichment, all of their 73 catalog books matched a work, and pages listed 17 to 85 works. Groups were all "no series" locally, because the match report doesn't run the import step that copies Goodreads series onto books; the live catalog has them.
 
+### Author page, frontend (Phase 3 PR 5)
+
+- **`/authors/:id`** (`pages/AuthorPage.tsx`):
+  - The author's name as the heading, then one section per series ("Glass series"), then "Other books" ("Books" when there are no series).
+  - Each book shows its cover, title (linked to `/books/:id` when it's in the catalog), "Series #n · year", and either "On your shelf · Status" (linked to the book) or the search page's add form, DNF included.
+  - Adding a catalog book sends `book_id`; an Open Library work sends `{source: "open_library", source_id}`. Adding refetches the author (`useAddToShelf` invalidates `['author']`), so the book flips to "On your shelf".
+- **Notices:** "Couldn't reach Open Library…" when `works_unavailable`; "Couldn't match this author on Open Library…" when there's no key. Otherwise a count plus an attribution link to the author on Open Library (new tab).
+- **Loading** says the first look can take a few seconds, since a first view waits on Open Library.
+- **Author links** (`AuthorNames`) on search results, the book page and shelf rows. A search result's author without a catalog id stays plain text (decision 3). Meta lines are built with `MetaParts` (" · " between parts), so they can hold links.
+
 ## Phase 5 backlog
 
 Everything deferred so far, in one place, to pick up in Phase 5 (polish) or sooner if it becomes urgent. Each item links back to where it was decided.

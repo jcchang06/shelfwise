@@ -23,6 +23,7 @@ function result(overrides: Partial<SearchResult> = {}): SearchResult {
     cover_url: 'https://books.google.com/books/content?id=vol1',
     book_id: null,
     shelf: null,
+    author_links: [{ id: null, name: 'Andy Weir' }],
     ...overrides,
   };
 }
@@ -38,6 +39,7 @@ function entry(overrides: Partial<ShelfEntry> = {}): ShelfEntry {
       id: 42,
       title: 'Project Hail Mary',
       authors: ['Andy Weir'],
+      author_links: [{ id: 1, name: 'Andy Weir' }],
       cover_url: '',
       page_count: 496,
     },
@@ -210,6 +212,34 @@ describe('searching', () => {
     expect(screen.getByRole('heading', { name: 'Project Hail Mary' })).toBeInTheDocument();
     expect(searches.map((u) => u.searchParams.get('page'))).toEqual(['1', '2']);
     expect(screen.queryByRole('button', { name: 'More results' })).not.toBeInTheDocument();
+  });
+});
+
+describe('author links', () => {
+  it('links authors in the catalog to their page and leaves the rest as text', async () => {
+    setup(() =>
+      HttpResponse.json(
+        page([
+          result({
+            authors: ['Andy Weir', 'Guest Writer'],
+            author_links: [
+              { id: 1, name: 'Andy Weir' },
+              { id: null, name: 'Guest Writer' },
+            ],
+          }),
+        ]),
+      ),
+    );
+    renderApp('/search?q=hail');
+    const item = (await screen.findByRole('heading', { name: 'Project Hail Mary' })).closest(
+      'li',
+    ) as HTMLElement;
+    expect(within(item).getByRole('link', { name: 'Andy Weir' })).toHaveAttribute(
+      'href',
+      '/authors/1',
+    );
+    expect(within(item).queryByRole('link', { name: 'Guest Writer' })).not.toBeInTheDocument();
+    expect(within(item).getByText(/Guest Writer/)).toBeInTheDocument();
   });
 });
 

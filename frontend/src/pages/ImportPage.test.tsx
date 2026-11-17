@@ -62,6 +62,7 @@ const candidate = (overrides: Partial<SearchResult> = {}): SearchResult => ({
   cover_url: '',
   book_id: null,
   shelf: null,
+  author_links: [{ id: null, name: 'Mara Vell' }],
   ...overrides,
 });
 

@@ -39,7 +39,14 @@ const reading = (id: number, title: string, overrides: Partial<ShelfEntry> = {})
   shelfEntry({
     id,
     status: 'reading',
-    book: { id: 40 + id, title, authors: ['A. Author'], cover_url: '', page_count: 400 },
+    book: {
+      id: 40 + id,
+      title,
+      authors: ['A. Author'],
+      author_links: [{ id: 5, name: 'A. Author' }],
+      cover_url: '',
+      page_count: 400,
+    },
     ...overrides,
   });
 

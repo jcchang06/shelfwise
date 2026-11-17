@@ -272,30 +272,35 @@ button:disabled {
   font-size: 0.875rem;
 }
 
-.search-results {
+.search-results,
+.author-works {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.search-result {
+.search-result,
+.author-work {
   display: flex;
   gap: 1rem;
   padding: 1rem 0;
   border-top: 1px solid var(--border);
 }
 
-.search-result-body {
+.search-result-body,
+.author-work-body {
   min-width: 0;
   flex: 1;
 }
 
-.search-result-title {
+.search-result-title,
+.author-work-title {
   margin: 0;
   font-size: 1.125rem;
 }
 
 .search-result-meta,
+.author-work-meta,
 .search-result-source {
   margin: 0.25rem 0;
   color: var(--text-muted);
