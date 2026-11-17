@@ -68,7 +68,9 @@ class TestSearch:
             "cover_url",
             "book_id",
             "shelf",
+            "author_links",
         }
+        assert first["author_links"] == [{"id": None, "name": a} for a in first["authors"]]
         assert isinstance(first["authors"], list) and all(
             isinstance(a, str) for a in first["authors"]
         )

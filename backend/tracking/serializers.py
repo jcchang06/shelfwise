@@ -78,8 +78,14 @@ class ShelfBookSerializer(serializers.Serializer):
     cover_url = serializers.CharField()
     page_count = serializers.IntegerField(allow_null=True)
 
+    # [{id, name}] in credit order, for links to author pages (C-5).
+    author_links = serializers.SerializerMethodField()
+
     def get_authors(self, book) -> list[str]:
         return [ba.author.name for ba in book.book_authors.all()]
+
+    def get_author_links(self, book) -> list[dict]:
+        return [{"id": ba.author_id, "name": ba.author.name} for ba in book.book_authors.all()]
 
 
 class UserBookSerializer(serializers.ModelSerializer):

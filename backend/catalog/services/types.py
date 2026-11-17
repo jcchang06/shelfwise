@@ -30,6 +30,27 @@ class BookResult:
 
 
 @dataclass(frozen=True)
+class AuthorWork:
+    """One work in an author's Open Library bibliography (C-5; the release check N-2)."""
+
+    work_key: str  # "OL82563W"
+    title: str
+    first_publish_year: int | None = None
+    cover_url: str = ""
+    edition_count: int = 0
+
+
+@dataclass(frozen=True)
+class AuthorCandidate:
+    """An Open Library author search hit."""
+
+    key: str  # "OL31353A"
+    name: str
+    alternate_names: tuple[str, ...] = ()
+    work_count: int = 0
+
+
+@dataclass(frozen=True)
 class SearchResults:
     source: Source
     results: list[BookResult]

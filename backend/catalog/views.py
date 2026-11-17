@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 
 from tracking.services import shelf_entries_for  # per-user; only read to label results
 
-from .models import Book, BookAuthor
+from .models import Author, Book, BookAuthor
 from .serializers import (
     PAGE_SIZES,
     BookSerializer,
@@ -18,6 +18,12 @@ from .serializers import (
     SearchQuerySerializer,
     SearchResultSerializer,
     search_result_data,
+)
+from .services.authors import (
+    author_ids_for,
+    author_works_for,
+    group_by_series,
+    resolve_author_key,
 )
 from .services.catalog import catalog_ids_for, get_or_create_book
 from .services.search import search_books
@@ -62,10 +68,11 @@ class BookSearchView(APIView):
         # depend on the current catalog and on who is asking, so they are computed here,
         # per request, after the cache read, and never stored in the cache.
         ids = catalog_ids_for(found.results)
+        author_ids = author_ids_for(found.results)
         shelves = shelf_entries_for(request.user, ids)
         results = [
-            search_result_data(result, book_id, shelves.get(book_id))
-            for result, book_id in zip(found.results, ids, strict=True)
+            search_result_data(result, book_id, shelves.get(book_id), authors)
+            for result, book_id, authors in zip(found.results, ids, author_ids, strict=True)
         ]
         full_page = len(results) >= PAGE_SIZES[found.source]
         return Response(
@@ -116,3 +123,40 @@ class BookDetailView(generics.RetrieveAPIView):
 
     def get_queryset(self):
         return books_with_authors()
+
+
+class AuthorDetailView(APIView):
+    """GET /api/authors/{id}/ (C-5): the author, their works grouped by series, and the
+    caller's shelf status on each.
+
+    Looks the author up in Open Library when it isn't cached (up to a few throttled
+    requests on the first view, then a day's cache), the same user-initiated exception as
+    search; hence the search throttle. If Open Library can't be reached, the author's
+    catalog books are still returned, with `works_unavailable: true`.
+    """
+
+    throttle_scope = "book_search"
+
+    def get(self, request: Request, pk: int) -> Response:
+        author = Author.objects.filter(pk=pk).first()
+        if author is None:
+            raise NotFound("No author with this ID.")
+        unavailable = False
+        try:
+            key = resolve_author_key(author)
+            items = author_works_for(author, key)
+        except BookSourceError:
+            unavailable = True
+            key = author.open_library_key
+            items = author_works_for(author, None)
+        shelves = shelf_entries_for(request.user, [i.book_id for i in items])
+        return Response(
+            {
+                "id": author.pk,
+                "name": author.name,
+                "open_library_key": key,
+                "open_library_url": f"https://openlibrary.org/authors/{key}" if key else None,
+                "works_unavailable": unavailable,
+                "groups": group_by_series(items, shelves),
+            }
+        )

@@ -84,9 +84,8 @@ class TestAuthAndIsolation:
 
 class TestList:
     def test_entry_shape(self, client, user):
-        book = BookFactory(
-            title="Piranesi", page_count=272, authors=[AuthorFactory(name="Susanna Clarke")]
-        )
+        clarke = AuthorFactory(name="Susanna Clarke")
+        book = BookFactory(title="Piranesi", page_count=272, authors=[clarke])
         UserBookFactory(user=user, book=book, status=S.READING)
         ReadingLogFactory(user=user, book=book, pages_read=30, log_date=dt.date(2026, 11, 1))
         ReadingLogFactory(user=user, book=book, pages_read=25, log_date=dt.date(2026, 11, 2))
@@ -97,6 +96,7 @@ class TestList:
             "id": book.id,
             "title": "Piranesi",
             "authors": ["Susanna Clarke"],
+            "author_links": [{"id": clarke.id, "name": "Susanna Clarke"}],
             "cover_url": book.cover_url,
             "page_count": 272,
         }

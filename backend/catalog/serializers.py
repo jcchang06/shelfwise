@@ -39,12 +39,27 @@ class SearchResultSerializer(serializers.Serializer):
     cover_url = serializers.CharField()
     book_id = serializers.IntegerField(allow_null=True)
     shelf = SearchShelfSerializer(allow_null=True)
+    # [{id, name}] in credit order; id is the catalog author (C-5 author page), or null
+    # for an author not in the catalog yet. `authors` stays plain names.
+    author_links = serializers.SerializerMethodField()
 
     def get_authors(self, obj: dict) -> list[str]:
         return [author.name for author in obj["authors"]]
 
+    def get_author_links(self, obj: dict) -> list[dict]:
+        ids = obj.get("author_ids") or [None] * len(obj["authors"])
+        return [
+            {"id": author_id, "name": author.name}
+            for author, author_id in zip(obj["authors"], ids, strict=True)
+        ]
 
-def search_result_data(result: BookResult, book_id: int | None, shelf: dict | None) -> dict:
+
+def search_result_data(
+    result: BookResult,
+    book_id: int | None,
+    shelf: dict | None,
+    author_ids: list[int | None] | None = None,
+) -> dict:
     return {
         "source": result.source.value,
         "source_id": result.source_id,
@@ -58,6 +73,7 @@ def search_result_data(result: BookResult, book_id: int | None, shelf: dict | No
         "cover_url": result.cover_url,
         "book_id": book_id,
         "shelf": shelf,
+        "author_ids": author_ids,
     }
 
 
