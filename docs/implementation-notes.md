@@ -374,8 +374,37 @@ Running it on your real export (433 rows) turned up four problems, now fixed:
 - **Checked vs failed:** a book looked up, found or not, gets `enrichment_checked_at` (without touching `updated_at`). A lookup that still fails after 3 attempts (2s and 5s apart, on top of the HTTP session's own retry) leaves the book unmarked for the next run. 5 failures in a row stop the run.
 - **Output is aggregate only:** counts filled, keys found, not found and failed, then the coverage: "still without a description: N of M (X%)", the same for genres, and how many books missing data have no key or ISBN to look up.
 - **Rate:** Open Library's 1 request per second, shared with every other Open Library caller in the process. About 1.6 seconds a book, so roughly 550 books in 15 minutes. The job runs after imports (`needs: imports`, `if: !cancelled()`), never alongside, so two processes never call Open Library at once.
-- **First local run** (the 400-book catalog from the PR 6 report): 203 books due; 100 descriptions and 23 genre lists filled, 37 Open Library keys found by ISBN, 20 author keys filled, 36 not found. Afterwards **51 of 400 books (13%) had no description** and 68 (17%) had no genres. Of the 68 without genres, 36 have an Open Library work with no usable subjects (none, or only ones the noise filter drops), and 32 have no Open Library work at all (no key, and no compatible ISBN match). So more genres would need another source, such as Google categories; worth revisiting before R-1.
+- **First local run** (the 400-book catalog from the PR 6 report): 203 books due; 100 descriptions and 23 genre lists filled, 37 Open Library keys found by ISBN, 20 author keys filled, 36 not found. Afterwards **51 of 400 books (13%) had no description** and 68 (17%) had no genres. Of the 68 without genres, 36 have an Open Library work with no usable subjects (none, or only ones the noise filter drops), and 32 have no Open Library work at all (no key, and no compatible ISBN match). So more genres would need another source.
+- **Genre gap: accepted for now** (decided Nov 17, 2026). If R-1 picks suffer, a Google-categories fallback is an option: a small nightly budget (for example 50 lookups, separate from `IMPORT_GOOGLE_DAILY_BUDGET`) for books that still have no genres after Open Library.
+- **Books with no description and no genres are excluded from recommendations** (R-1, decided Nov 17, 2026). With no text, their TF-IDF vector would be empty, so they're left out of scoring rather than scored as zero. They can still be shelved and logged as usual.
 - **urllib3 logging is set to ERROR** (settings `LOGGING`). Its retry warnings print the full request URL, query string included: the Google API key, and on Open Library the ISBNs being looked up. A dropped connection during this run printed one. `http.py`'s own warnings already leave the query string out.
+
+## C-5: Author pages, backend (Phase 3 PR 4)
+
+`catalog/services/authors.py`, plus the Open Library client's `author_works()` and `search_authors()`.
+
+- **`GET /api/authors/{id}/`** → `{id, name, open_library_key, open_library_url, works_unavailable, groups: [{series_name, works: [{title, work_key, first_publish_year, cover_url, book_id, series_name, series_number, shelf}]}]}`.
+  - Requires login. `shelf` is the caller's entry or null, computed per request and never cached. It uses the `book_search` throttle, since a first view calls Open Library.
+  - **Open Library unreachable:** still 200, with the author's catalog books only and `works_unavailable: true`.
+  - **Adding a work to the shelf** needs no new endpoint: `POST /api/shelf/` with `{source: "open_library", source_id: work_key}`.
+- **Finding the author's Open Library key** (`resolve_author_key`), without guessing between namesakes:
+  1. The key the author already has.
+  2. Otherwise, the works of up to 3 of their catalog books (cached): the author listed under the same normalized name. This also finds a key held by another author row, the same person under another spelling; it's used but not copied (keys are unique).
+  3. Otherwise, Open Library's author search. A namesake (matched on name or alternate names, most works first, up to 3) is accepted only if their works include one of this author's catalog books, by work key or normalized title. With no catalog books there's nothing to confirm against, so no guess.
+  - A key found in step 2 or 3 is saved on the author when no other row has it.
+- **`author_works(key, sort)`** (reused by the N-2 release check): one search request, `q=author_key:…`, 100 works.
+  - Keeps works in `BOOK_SEARCH_LANGUAGE` (MARC code, e.g. `eng`) or with no language listed.
+  - Keeps one work per normalized title, the one with the most editions, because Open Library lists re-releases as separate works.
+  - Sorted oldest first and cached for a day.
+  - `sort="new"` guarantees the newest works (the release check); `"editions"` the best-known (a prolific author's classics; Tolkien has 367 works).
+  - **The author page merges both lists,** so two requests on the first view.
+- **Merging with the catalog:**
+  - A work matches a catalog book by work key, then by normalized title, and one catalog book never matches two works.
+  - On a match, the catalog's title, cover and series win.
+  - The author's catalog books Open Library doesn't list are added too.
+- **Series grouping:** from the catalog's series (the Goodreads import or hand edits); Open Library's search rarely has series. Series come first, earliest first, with books ordered by number ("1.5" novellas included). Then books in no known series, oldest first, unknown years last.
+- **Author IDs for links:** search results and shelf entries gain `author_links: [{id, name}]`. `authors` stays a list of names, so the deployed frontend keeps working until PR 5. Search matches authors by Open Library key, then normalized name, in two queries per page; `id` is null for an author not in the catalog (decision 3).
+- **Local check** (top 5 authors by catalog books, live Open Library): every key was already set by the import and enrichment, all of their 73 catalog books matched a work, and pages listed 17 to 85 works. Groups were all "no series" locally, because the match report doesn't run the import step that copies Goodreads series onto books; the live catalog has them.
 
 ## Phase 5 backlog
 
@@ -392,6 +421,7 @@ Everything deferred so far, in one place, to pick up in Phase 5 (polish) or soon
 - **History of each read** (T-2, T-5). v1 keeps one set of dates per book, so a re-read overwrites `started_at` and `finished_at`, and a book finished twice counts once, in its latest year. A `reads` table would give accurate re-read stats.
 - **Indexed `name_normalized` on `Author`** (C-1 / C-2). Author name matching scans the table with a Postgres expression. Add the indexed column, which is a migration, if the C-3 catalog seed makes saves slow.
 - **Reading streak** (Dashboard). Consecutive days with at least one reading log, for the goal-setter persona. It's not part of T-5, so the Phase 1 dashboard shows totals only. It can be worked out from `ReadingLog.log_date` in `TIME_ZONE`, added to `/api/stats/`, and shown as a stat tile.
+- **Merge duplicate authors** (C-5, C-6). The same person can be two `Author` rows under different spellings ("M. Vell" and "Mara Vell"). Only one can hold the Open Library key, which is unique, so the nightly job counts these as `duplicate_authors` and leaves them. Author pages still find the key through the other row's work. A `merge_duplicate_authors --dry-run`, like `merge_duplicate_books`, would move `BookAuthor` links to one row.
 - **Sign-up page** (Frontend foundation). Production has sign-up turned off (`ALLOW_SIGNUP=false`) and v1 has one user. Add the page only if a public beta happens.
 
 ### Tooling
