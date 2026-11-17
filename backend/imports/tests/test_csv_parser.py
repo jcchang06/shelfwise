@@ -190,3 +190,32 @@ class TestHelpers:
 
     def test_map_row_without_id(self):
         assert map_row(1, {"Book Id": "", "Title": "X"}).error
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("5", 5),
+        ("5.0", 5),
+        (" 320.0 ", 320),
+        ("0", 0),
+        ("4.5", None),
+        ("-1", None),
+        ("", None),
+        ("n/a", None),
+    ],
+)
+def test_parse_int_accepts_goodreads_decimal_forms(value, expected):
+    from imports.csv_parser import parse_int
+
+    assert parse_int(value) == expected
+
+
+def test_ratings_written_as_decimals_are_kept():
+    """Regression: real Goodreads exports write My Rating as "5.0"; those were dropped."""
+    header = ",".join(REQUIRED_COLUMNS)
+    parsed = parse_goodreads_csv(
+        csv_bytes(header, "1,Dune,Frank Herbert,,,5.0,read,,,", "2,Emma,Jane Austen,,,0.0,read,,,")
+    )
+    assert parsed[0].rating == 5
+    assert parsed[1].rating is None  # 0.0 is still "unrated"
