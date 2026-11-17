@@ -6,7 +6,9 @@ Version 1 has exactly one user (me), must cost $0/month to host, and doubles as 
 
 ## Current phase
 
-**Phase 1: MVP tracker (P0 requirements only).** Do not build P1/P2 features until I say the Phase 1 gate is met.
+**Phase 2: Goodreads CSV import (I-1 to I-4) in progress.** Phase 1 features are built and deployed. I'm doing Phase 2 in parallel with my week of daily use of Phase 1 (its gate) and will send small fixes as I find them.
+
+**Phase 3 (recommendations) is blocked** until I've used the app for about a week and the fixes I found are done. Don't start it until I say so.
 
 Phase order (see `docs/PRD.md` → Milestones):
 1. MVP tracker: auth, book search, shelf (incl. DNF), page logs, ratings, dashboard
