@@ -21,4 +21,5 @@ urlpatterns = [
     path("api/shelf/", include("tracking.urls")),
     path("api/logs/", include("tracking.log_urls")),
     path("api/stats/", include("tracking.stats_urls")),
+    path("api/imports/", include("imports.urls")),
 ]

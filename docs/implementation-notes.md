@@ -271,15 +271,26 @@ Matching tries the cheapest source first:
   - **A group is never merged automatically** when one user has shelf entries or logs on more than one of its books; it's reported instead.
   - **What a merge does:** shelf entries, logs and import rows are moved to the kept book, its empty fields are filled from the duplicate, and the duplicate is deleted.
 
-### Processing (I-2, PR 3)
-- **One resumable function,** `process_import_batch(import_id)`, saves after every row.
-- **Each batch is bounded by time** (about **20 seconds**) as well as row count, so a request never reaches gunicorn's 60-second timeout.
+### Processing (I-2, PR 3: `imports/processing.py`, `imports/apply.py`)
+- **One resumable function,** `process_import_batch(import_id)`, does the work:
+  - **It stops after `IMPORT_BATCH_SECONDS`** (20), well inside gunicorn's 60-second timeout.
+  - **It saves after every row,** so an interruption just means the next batch resumes.
+  - **It prefetches ISBNs once per batch,** up to 200 rows.
+  - **A lock in the shared cache** stops two callers from processing the same import at once. The second caller gets `ImportBusyError`, and the API answers **409**.
 - **It's run by:**
-  - `POST /api/imports/{id}/process/`, called repeatedly while the import page is open (the progress bar follows the counts)
-  - `python manage.py run_import <id>`
-  - a Celery task, **local Docker only**
-  - the **nightly** GitHub Actions job (`run_pending_imports`), which finishes or resumes anything left
-- **The nightly job needs `DATABASE_URL` and `GOOGLE_BOOKS_API_KEY` as GitHub repository secrets.** PR 3 adds the setup steps to the README.
+  - **The import page,** which calls `POST /api/imports/{id}/process/` repeatedly while it's open.
+  - **`manage.py run_import <id>`,** which loops until the import is done or paused.
+  - **`manage.py run_pending_imports`,** run by the **nightly job** (`.github/workflows/jobs-nightly.yml`, 10:00 UTC = 02:00 PST). It handles every pending, running or paused import, oldest first, within `--max-minutes` (20). If one import pauses on the budget it stops, because the others would pause too.
+  - **A Celery task, local Docker only.** The `worker` service sets `IMPORTS_USE_CELERY=true`, and a new upload is handed to it. **Celery is only in `requirements-dev.txt`.** Production never installs or imports it; a production-only virtualenv was checked: `manage.py check`, the import views and `run_pending_imports` all work.
+- **The nightly job's repository secrets** are `DATABASE_URL` and `GOOGLE_BOOKS_API_KEY`. The setup is in README → Deploy → Nightly jobs, using `gh secret set`, which prompts without echoing. The job fails fast, naming any secret that's missing.
+- **The upload is kept in memory only.** By default, Django writes uploads larger than 2.5 MB to a temporary file on disk. `FILE_UPLOAD_HANDLERS` is set to the memory handler alone, with `FILE_UPLOAD_MAX_MEMORY_SIZE = IMPORT_MAX_FILE_BYTES`. Larger uploads are rejected as too large, based on `CONTENT_LENGTH`.
+- **When an import finishes,** created, updated and skipped rows are deleted, and the stored counters become the record. Unmatched rows (I-4) and failed rows, which keep their reasons, stay.
+- **Applying a match to the shelf** goes through `apply_shelf_changes` with **explicit** values, so no "today" defaults sneak in:
+  - **A finished book with no Goodreads date stays undated,** and is counted under "Date unknown" in the stats.
+  - **A currently-reading book gets no invented start date.**
+  - **A date in the future is a rule error,** and the row fails.
+  - **The shelf entry's `created_at` is set to Goodreads' "Date Added",** so "Added …" on the shelf is accurate.
+  - **An empty series on the catalog book is filled from Goodreads.**
 
 ### Re-imports (I-3)
 - **`GoodreadsLink(user, goodreads_book_id → user_book, synced_at)`** is unique per user and Goodreads ID. Two Goodreads editions can link to one shelf entry.
