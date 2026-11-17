@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 
 import { DNF_REASON_LABELS, type ShelfEntry } from '../api/types';
 import { formatDate, formatTimestampDate } from '../dates';
+import { AuthorNames } from './AuthorNames';
 import { BookCover } from './BookCover';
 import { ReadingProgress } from './ReadingProgress';
 import { Stars } from './Stars';
@@ -41,8 +42,10 @@ export function ShelfRow({ entry }: { entry: ShelfEntry }) {
         <h2 className="shelf-row-title">
           <Link to={`/books/${entry.book.id}`}>{entry.book.title}</Link>
         </h2>
-        {entry.book.authors.length ? (
-          <p className="shelf-row-meta">{entry.book.authors.join(', ')}</p>
+        {entry.book.author_links.length ? (
+          <p className="shelf-row-meta">
+            <AuthorNames authors={entry.book.author_links} />
+          </p>
         ) : null}
         <StatusLine entry={entry} />
       </div>

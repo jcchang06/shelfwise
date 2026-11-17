@@ -74,6 +74,13 @@ export interface SearchResult {
   cover_url: string;
   book_id: number | null; // catalog book it would save to
   shelf: { id: number; status: ShelfStatus } | null; // the caller's entry
+  author_links: AuthorLink[]; // id null: not in the catalog yet, so no author page
+}
+
+/** An author name, with the catalog author's id when there's an author page for it. */
+export interface AuthorLink {
+  id: number | null;
+  name: string;
 }
 
 export interface SearchResponse {
@@ -88,6 +95,7 @@ export interface ShelfBook {
   id: number;
   title: string;
   authors: string[];
+  author_links: { id: number; name: string }[];
   cover_url: string;
   page_count: number | null;
 }

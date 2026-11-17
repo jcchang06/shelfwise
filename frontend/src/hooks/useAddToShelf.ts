@@ -45,6 +45,7 @@ export function useAddToShelf() {
       queryClient.setQueryData(shelfEntryKey(entry.book.id), entry);
       void queryClient.invalidateQueries({ queryKey: ['shelf', 'list'] });
       void queryClient.invalidateQueries({ queryKey: ['stats'] });
+      void queryClient.invalidateQueries({ queryKey: ['author'] }); // shelf status per work
     },
   });
 }

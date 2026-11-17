@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
+import { AuthorNames } from '../components/AuthorNames';
+import { MetaParts } from '../components/MetaParts';
 import { shelfPath } from '../shelves';
 import { bookSourceLink } from '../api/books';
 import { ApiError } from '../api/client';
@@ -21,7 +23,7 @@ import { useBook, useShelfEntry } from '../hooks/useShelf';
 function BookDetails({ book }: { book: BookDetail }) {
   const link = bookSourceLink(book);
   const meta = [
-    book.authors.map((a) => a.name).join(', '),
+    book.authors.length ? <AuthorNames authors={book.authors} /> : '',
     book.published_date ? yearOf(book.published_date) : '',
     book.page_count ? `${book.page_count} pages` : '',
   ].filter(Boolean);
@@ -34,7 +36,11 @@ function BookDetails({ book }: { book: BookDetail }) {
       <BookCover url={book.cover_url} size="medium" />
       <div>
         <h1 id="book-title">{book.title}</h1>
-        {meta.length ? <p className="book-meta">{meta.join(' · ')}</p> : null}
+        {meta.length ? (
+          <p className="book-meta">
+            <MetaParts parts={meta} />
+          </p>
+        ) : null}
         {series ? <p className="book-meta">Series: {series}</p> : null}
         {book.genres.length ? <p className="book-meta">{book.genres.join(', ')}</p> : null}
         {link ? (

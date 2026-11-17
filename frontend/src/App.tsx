@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { RequireAuth } from './auth/RequireAuth';
 import { AppShell } from './components/AppShell';
 import { ServerWakingBanner } from './components/ServerWakingBanner';
+import AuthorPage from './pages/AuthorPage';
 import BookPage from './pages/BookPage';
 import DashboardPage from './pages/DashboardPage';
 import ImportDetailPage from './pages/ImportDetailPage';
@@ -26,6 +27,7 @@ export default function App() {
             <Route path="/search" element={<SearchPage />} />
             <Route path="/shelf" element={<ShelfPage />} />
             <Route path="/books/:id" element={<BookPage />} />
+            <Route path="/authors/:id" element={<AuthorPage />} />
             <Route path="/import" element={<ImportPage />} />
             <Route path="/import/:id" element={<ImportDetailPage />} />
           </Route>

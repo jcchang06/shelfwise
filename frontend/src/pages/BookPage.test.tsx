@@ -72,7 +72,13 @@ describe('book details', () => {
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Project Hail Mary' }),
     ).toBeInTheDocument();
-    expect(screen.getByText('Andy Weir · 2021 · 496 pages')).toBeInTheDocument();
+    const meta = screen.getByText(
+      (_, el) => el?.tagName === 'P' && el.textContent === 'Andy Weir · 2021 · 496 pages',
+    );
+    expect(within(meta).getByRole('link', { name: 'Andy Weir' })).toHaveAttribute(
+      'href',
+      '/authors/1',
+    );
     expect(screen.getByText('Series: Hail Mary #2')).toBeInTheDocument();
     expect(screen.getByText('Science Fiction, Thrillers')).toBeInTheDocument();
     expect(screen.getByText('A lone astronaut must save the earth.')).toBeInTheDocument();

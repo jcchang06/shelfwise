@@ -26,6 +26,7 @@ export function shelfEntry(overrides: Partial<ShelfEntry> = {}): ShelfEntry {
       id: 42,
       title: 'Project Hail Mary',
       authors: ['Andy Weir'],
+      author_links: [{ id: 1, name: 'Andy Weir' }],
       cover_url: '',
       page_count: 496,
     },

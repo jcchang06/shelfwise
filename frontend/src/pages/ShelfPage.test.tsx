@@ -44,7 +44,7 @@ describe('shelf page', () => {
       'aria-current',
       'page',
     );
-    expect(screen.getByText('Andy Weir')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Andy Weir' })).toHaveAttribute('href', '/authors/1');
   });
 
   it('shows reading progress', async () => {
