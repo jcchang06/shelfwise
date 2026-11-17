@@ -1,0 +1,52 @@
+# Render Blueprint for the Shelfwise API (free plan). Set up steps: README → Deploy.
+#
+# Free-plan constraints this file works around:
+# - No preDeployCommand, shell or one-off jobs, so migrations run in buildCommand (once
+#   per deploy; a failed migration fails the deploy) and the first account is created
+#   from your machine with createsuperuser against Neon.
+# - New services default to Python 3.14, so the version is pinned.
+# - The instance sleeps after 15 minutes idle; the first request after that takes ~1 min.
+
+services:
+  - type: web
+    name: shelfwise-api
+    runtime: python
+    plan: free
+    region: oregon # same AWS region as the Neon database (us-west-2)
+    rootDir: backend
+    buildCommand: >-
+      pip install -r requirements.txt &&
+      python manage.py collectstatic --noinput &&
+      python manage.py dbinfo &&
+      python manage.py migrate --noinput &&
+      python manage.py createcachetable
+    startCommand: >-
+      gunicorn config.wsgi:application --bind 0.0.0.0:$PORT
+      --workers 2 --timeout 60 --access-logfile -
+    healthCheckPath: /api/health/
+    autoDeployTrigger: checksPass # deploy main only after CI passes
+    buildFilter:
+      paths:
+        - backend/**
+        - render.yaml
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.16" # same as local and CI (.python-version)
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: TIME_ZONE
+        value: America/Los_Angeles
+      # Sign-up stays closed; your account is created with createsuperuser (README).
+      # Kept in this file, not the dashboard, so a Blueprint sync can't reopen it.
+      - key: ALLOW_SIGNUP
+        value: "false"
+      # sync: false = Render asks for these once when the Blueprint is created and never
+      # overwrites them afterwards. Change them in the dashboard.
+      - key: DATABASE_URL
+        sync: false # Neon *direct* connection string (not -pooler)
+      - key: GOOGLE_BOOKS_API_KEY
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false # http://localhost:5173 until the frontend is deployed
