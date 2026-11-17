@@ -22,6 +22,7 @@ def _locmem_cache(settings):
             "LOCATION": "shelfwise-tests",
         }
     }
+    settings.OPEN_LIBRARY_REQUESTS_PER_SECOND = 0  # no sleeping in tests
     cache.clear()
     yield
     cache.clear()

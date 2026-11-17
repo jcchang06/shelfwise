@@ -14,7 +14,7 @@ from decimal import Decimal
 
 from django.conf import settings
 
-from catalog.services.normalize import clean_description, clean_text
+from catalog.services.normalize import clean_description, clean_text, isbn10_to_13
 from tracking.models import UserBook
 
 Status = UserBook.Status
@@ -73,12 +73,6 @@ class ParsedRow:
 
 
 # --- Field parsers ---------------------------------------------------------------------
-
-
-def isbn10_to_13(isbn10: str) -> str:
-    core = "978" + isbn10[:9]
-    total = sum(int(d) * (1 if i % 2 == 0 else 3) for i, d in enumerate(core))
-    return core + str((10 - total % 10) % 10)
 
 
 def parse_isbn(isbn13: str, isbn10: str) -> str:

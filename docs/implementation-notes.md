@@ -245,12 +245,31 @@ Code lives in the `imports` app. Your real export is **never committed**. `*.csv
 - **Ratings:** `My Rating` 0 means unrated. A rating is kept **only for finished books**. Any other status, DNF included, drops the rating, with a note.
 - **Bad rows** (no Book Id or title, or the same Book Id twice in one file) become `failed` rows with the reason, and count as processed.
 
-### Matching (PR 2)
-- **Order:** catalog by ISBN-13, then catalog by normalized title + first author, then a Book API by ISBN, then by title + author.
-- **A title + author result is accepted only on an exact normalized title and first-author match.** Anything ambiguous becomes `unmatched` (I-4).
-- **ISBN lookups go to Open Library first,** which has no key or daily quota. I'll check its current rate-limit guidance before building, and throttle to it.
-- **Google is used for title + author searches,** within **`IMPORT_GOOGLE_DAILY_BUDGET`** (default 600 calls per Pacific day), which leaves the rest of the 1,000 for search. When the budget runs out, the import is `paused` and resumes the next day.
-- **`manage.py merge_duplicate_books --dry-run`** finds the same book saved twice in the catalog (normalized title + first author). **It never merges without a `--dry-run` report reviewed first.**
+### Matching (PR 2: `imports/matching.py`)
+
+Matching tries the cheapest source first:
+1. **The catalog, by ISBN-13** (the oldest book with it).
+2. **The catalog, by first author plus normalized title.** Authors use the existing name normalization. Titles use `normalize_title`: the main title before ":", trailing "(…)" or "[…]" removed, accents stripped, "&" read as "and", punctuation removed, lowercase.
+3. **Open Library, by ISBN, in batches.**
+4. **Google Books, by title plus author,** within the budget.
+
+- **Open Library's rules,** checked Nov 2026 at openlibrary.org/developers/api:
+  - **1 request per second** for clients that don't include a contact email in the User-Agent (ours doesn't), and 3 per second with one.
+  - **Don't make "hundreds of single-book requests"; use `search.json` for batches.**
+- **What we do about it:**
+  - **ISBNs are looked up 40 per request** (`q=isbn:(… OR …)`, via `prefetch_isbns`), only for ISBNs not already in the catalog.
+  - **Every Open Library call is throttled** to `OPEN_LIBRARY_REQUESTS_PER_SECOND` (default 1, shared by the whole process).
+  - **To get 3 per second,** add a contact to `OPEN_LIBRARY_USER_AGENT` and raise the setting. We don't put an email there by default.
+- **Vetting ISBN hits:** some Open Library ISBNs are attached to the wrong work. In testing, a fake ISBN came back as an unrelated Spanish book. A hit is used only if `titles_compatible` (equal titles, one a prefix of the other, or at least half the words shared). Otherwise the row moves on to title plus author, and the note explains what happened.
+- **Title-plus-author matches are strict:** a result needs an exact normalized title **and** the row's first author among its authors. Near misses become unmatched rather than being guessed.
+- **No single-book requests:** external hits are saved straight from the batch or search result (`catalog.save_book_result`), never through a follow-up `get_volume` or `get_work`.
+  - **The cost:** books saved from Open Library this way have **no description**. Descriptions should be filled in by a throttled scheduled job **before Phase 3**, because TF-IDF needs them. The PRD already assigns metadata lookups for new books to scheduled jobs.
+- **Google budget:** `spend_google_call()` counts one call against `IMPORT_GOOGLE_DAILY_BUDGET` **before** each title search. It's counted conservatively, so a search served from the cache still counts. The counter is per Pacific day and lives in the shared cache. When the budget runs out, or Google's own quota flag is set, matching raises `MatchPausedError`: the row stays pending and the import pauses until the next day.
+- **Duplicates:** `manage.py merge_duplicate_books --dry-run` prints the merge plan and a **plan token**.
+  - **Merging needs `--apply <token>`,** and it refuses if the catalog has changed since the dry run. Running it with neither option refuses too, so nothing can be merged without a dry run first.
+  - **Groups are books with the same normalized title and first author.** The oldest book is kept. Books with no author are never grouped.
+  - **A group is never merged automatically** when one user has shelf entries or logs on more than one of its books; it's reported instead.
+  - **What a merge does:** shelf entries, logs and import rows are moved to the kept book, its empty fields are filled from the duplicate, and the duplicate is deleted.
 
 ### Processing (I-2, PR 3)
 - **One resumable function,** `process_import_batch(import_id)`, saves after every row.

@@ -2,6 +2,7 @@
 
 import html
 import re
+import unicodedata
 from collections.abc import Iterable
 
 from django.utils.html import strip_tags
@@ -122,3 +123,49 @@ def https_cover_url(url: str | None) -> str:
         return ""
     url = url.replace("&edge=curl", "")
     return "https://" + url.removeprefix("http://") if url.startswith("http://") else url
+
+
+_TRAILING_PARENS = re.compile(r"\s*[(\[][^()\[\]]*[)\]]\s*$")
+_NON_WORD = re.compile(r"[^\w\s]|_")
+
+
+def normalize_title(title: str) -> str:
+    """Matching key for titles: the main title (before ":"), without trailing bracketed
+    notes like "(The Expanse, #1)" or "[Movie Tie-In]", accents stripped, "&" as "and",
+    punctuation removed, lowercase, single spaces. "The Martian: A Novel" -> "the martian".
+    """
+    main = title.split(":", 1)[0]
+    while _TRAILING_PARENS.search(main):
+        main = _TRAILING_PARENS.sub("", main)
+    decomposed = unicodedata.normalize("NFKD", main)
+    plain = "".join(c for c in decomposed if not unicodedata.combining(c))
+    plain = plain.casefold().replace("&", " and ")
+    return _WHITESPACE.sub(" ", _NON_WORD.sub(" ", plain)).strip()
+
+
+def titles_compatible(a: str, b: str) -> bool:
+    """Loose check that two titles name the same book, for vetting ISBN hits (some Open
+    Library ISBNs are attached to the wrong work). Equal, one a prefix of the other, or at
+    least half of the shorter title's words shared."""
+    x, y = normalize_title(a), normalize_title(b)
+    if not x or not y:
+        return False
+    if x == y or x.startswith(y) or y.startswith(x):
+        return True
+    wx, wy = set(x.split()), set(y.split())
+    return len(wx & wy) >= max(1, min(len(wx), len(wy)) / 2)
+
+
+def isbn10_to_13(isbn10: str) -> str:
+    """ "0593135202" -> "9780593135204" (978 prefix, recomputed check digit)."""
+    core = "978" + isbn10[:9]
+    total = sum(int(d) * (1 if i % 2 == 0 else 3) for i, d in enumerate(core))
+    return core + str((10 - total % 10) % 10)
+
+
+def as_isbn_13(value: str) -> str:
+    """Any ISBN-10 or ISBN-13 (hyphens/spaces allowed) as an ISBN-13, or "" if neither."""
+    bare = parse_isbn_query(value or "")
+    if bare is None:
+        return ""
+    return bare if len(bare) == 13 else isbn10_to_13(bare)
