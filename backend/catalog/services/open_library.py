@@ -17,7 +17,15 @@ from django.core.cache import cache
 
 from . import normalize
 from .http import build_session, get_response, parse_json
-from .types import AuthorRef, BookNotFoundError, BookResult, BookSourceError, Source
+from .types import (
+    AuthorCandidate,
+    AuthorRef,
+    AuthorWork,
+    BookNotFoundError,
+    BookResult,
+    BookSourceError,
+    Source,
+)
 
 API_ROOT = "https://openlibrary.org"
 COVERS_ROOT = "https://covers.openlibrary.org/b/id"
@@ -248,3 +256,83 @@ def search_title_author(title: str, author: str) -> list[BookResult]:
     results = [r for doc in docs if (r := parse_search_doc(doc))]
     cache.set(cache_key, results, timeout=SEARCH_CACHE_SECONDS)
     return results
+
+
+# --- Authors (C-5 author pages; reused by the N-2 release check) ----------------------
+
+AUTHOR_CACHE_SECONDS = 24 * 60 * 60
+AUTHOR_WORKS_LIMIT = 100
+AUTHOR_WORK_FIELDS = "key,title,first_publish_year,cover_i,edition_count,language"
+# Open Library tags editions with MARC language codes.
+_MARC_LANGUAGE = {"en": "eng", "es": "spa", "fr": "fre", "de": "ger", "it": "ita", "pt": "por"}
+
+
+def author_works_params(author_key: str, sort: str) -> dict[str, Any]:
+    return {
+        "q": f"author_key:{author_key}",
+        "fields": AUTHOR_WORK_FIELDS,
+        "sort": sort,  # "new" (first published, newest first) or "editions"
+        "limit": AUTHOR_WORKS_LIMIT,
+    }
+
+
+def author_works(author_key: str, sort: str = "new") -> list[AuthorWork]:
+    """Up to AUTHOR_WORKS_LIMIT works by one author, in BOOK_SEARCH_LANGUAGE or with no
+    language listed, one per title (the one with the most editions), oldest first.
+
+    sort="new" guarantees the newest works are included (the release check); "editions"
+    the best-known ones (an author page, where a prolific author's classics matter).
+    Cached for a day. One throttled request.
+    """
+    cache_key = f"open_library:author_works:{sort}:{author_key}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    docs = _get(f"{API_ROOT}/search.json", author_works_params(author_key, sort)).get("docs")
+    works = parse_author_works(docs or (), settings.BOOK_SEARCH_LANGUAGE)
+    cache.set(cache_key, works, timeout=AUTHOR_CACHE_SECONDS)
+    return works
+
+
+def parse_author_works(docs: Any, language: str) -> list[AuthorWork]:
+    wanted = _MARC_LANGUAGE.get(language)
+    best: dict[str, AuthorWork] = {}
+    for doc in docs:
+        key, title = _work_key(doc.get("key")), normalize.clean_text(doc.get("title"))
+        languages = doc.get("language") or ()
+        if not key or not title or (wanted and languages and wanted not in languages):
+            continue
+        work = AuthorWork(
+            work_key=key,
+            title=title,
+            first_publish_year=doc.get("first_publish_year") or None,
+            cover_url=_cover_url(doc.get("cover_i")),
+            edition_count=doc.get("edition_count") or 0,
+        )
+        # Open Library lists re-releases as separate works; keep the best-known one.
+        name = normalize.normalize_title(title) or title.casefold()
+        if name not in best or work.edition_count > best[name].edition_count:
+            best[name] = work
+    return sorted(best.values(), key=lambda w: (w.first_publish_year or 9999, w.title))
+
+
+def search_authors(name: str) -> list[AuthorCandidate]:
+    """Open Library authors matching a name (one throttled request, cached for a day)."""
+    digest = hashlib.sha256(name.casefold().encode()).hexdigest()[:32]
+    cache_key = f"open_library:search_authors:{digest}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    docs = _get(f"{API_ROOT}/search/authors.json", {"q": name, "limit": 5}).get("docs") or ()
+    found = [
+        AuthorCandidate(
+            key=_work_key(doc.get("key")),
+            name=normalize.clean_text(doc.get("name")),
+            alternate_names=tuple(n for n in doc.get("alternate_names") or () if n),
+            work_count=doc.get("work_count") or 0,
+        )
+        for doc in docs
+        if doc.get("key") and doc.get("name")
+    ]
+    cache.set(cache_key, found, timeout=AUTHOR_CACHE_SECONDS)
+    return found

@@ -18,6 +18,7 @@ urlpatterns = [
     path("api/health/", health, name="health"),
     path("api/auth/", include("accounts.urls")),
     path("api/books/", include("catalog.urls")),
+    path("api/authors/", include("catalog.author_urls")),
     path("api/shelf/", include("tracking.urls")),
     path("api/logs/", include("tracking.log_urls")),
     path("api/stats/", include("tracking.stats_urls")),
