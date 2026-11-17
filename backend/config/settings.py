@@ -187,6 +187,7 @@ OPEN_LIBRARY_USER_AGENT = env(
 # 3 only after adding a contact to OPEN_LIBRARY_USER_AGENT. 0 disables throttling (tests).
 OPEN_LIBRARY_REQUESTS_PER_SECOND = env.float("OPEN_LIBRARY_REQUESTS_PER_SECOND", default=1.0)
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
+CELERY_BROKER_URL = REDIS_URL  # local Docker only (config/celery.py)
 
 # --- Domain -------------------------------------------------------------------
 
@@ -211,9 +212,20 @@ STATS_EXCLUDED_GENRES = env.list("STATS_EXCLUDED_GENRES", default=["Fiction", "N
 # Goodreads import (Phase 2). The CSV is parsed in memory and never stored.
 IMPORT_MAX_FILE_BYTES = env.int("IMPORT_MAX_FILE_BYTES", default=5 * 1024 * 1024)
 IMPORT_MAX_ROWS = env.int("IMPORT_MAX_ROWS", default=10_000)
+# Keep uploads in memory only. Django's default writes uploads over 2.5 MB to a temp file
+# on disk, which would briefly store a Goodreads export; with only the memory handler and
+# its limit at the import limit, a larger upload is simply not accepted.
+FILE_UPLOAD_HANDLERS = ["django.core.files.uploadhandler.MemoryFileUploadHandler"]
+FILE_UPLOAD_MAX_MEMORY_SIZE = IMPORT_MAX_FILE_BYTES
 # Google Books calls imports may use per day (Pacific), leaving the rest of the 1,000/day
 # quota for search. When it runs out, an import pauses until the next day.
 IMPORT_GOOGLE_DAILY_BUDGET = env.int("IMPORT_GOOGLE_DAILY_BUDGET", default=600)
+# Seconds one processing batch may run. Well inside gunicorn's 60s timeout, since the
+# import page runs batches through a normal web request.
+IMPORT_BATCH_SECONDS = env.float("IMPORT_BATCH_SECONDS", default=20.0)
+# Local Docker only: hand new imports to the Celery worker. Production has no worker;
+# there the import page and the nightly job run the batches.
+IMPORTS_USE_CELERY = env.bool("IMPORTS_USE_CELERY", default=False)
 
 # --- Production hardening -----------------------------------------------------
 
