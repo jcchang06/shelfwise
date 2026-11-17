@@ -129,7 +129,7 @@ class TestList:
         assert titles == ["Atonement", "Beloved", "Circe"]
 
     @pytest.mark.parametrize(
-        "params", [{"status": "abandoned"}, {"book": "abc"}, {"ordering": "rating"}]
+        "params", [{"status": "abandoned"}, {"book": "abc"}, {"ordering": "stars"}]
     )
     def test_bad_query_params_400(self, client, params):
         assert client.get(SHELF, params).status_code == 400
@@ -149,6 +149,109 @@ class TestList:
         # auth is forced, so: count + page + author prefetch
         with django_assert_max_num_queries(3):
             client.get(SHELF)
+
+
+class TestFiltersAndSorts:
+    """Author and rating filters, author and rating sorts (T-2)."""
+
+    def shelve(self, user, title, author_names=(), rating=None, status=S.FINISHED):
+        authors = [AuthorFactory(name=name) for name in author_names]
+        book = BookFactory(title=title, authors=authors)
+        return UserBookFactory(user=user, book=book, status=status, rating=rating)
+
+    def titles(self, client, **params):
+        return [r["book"]["title"] for r in client.get(SHELF, params).json()["results"]]
+
+    def test_author_filter_includes_co_authored_books_and_names_the_author(self, client, user):
+        mara = AuthorFactory(name="Mara Vell")
+        UserBookFactory(user=user, book=BookFactory(title="Solo", authors=[mara]))
+        UserBookFactory(user=user, book=BookFactory(title="Duet", authors=[AuthorFactory(), mara]))
+        UserBookFactory(user=user, book=BookFactory(title="Other"))
+        UserBookFactory(book=BookFactory(title="Not mine", authors=[mara]))  # another user
+
+        body = client.get(SHELF, {"author": mara.pk, "ordering": "title"}).json()
+        assert [r["book"]["title"] for r in body["results"]] == ["Duet", "Solo"]
+        assert body["filters"] == {"author": {"id": mara.pk, "name": "Mara Vell"}}
+
+    def test_filters_are_null_without_an_author_and_unknown_authors_are_empty(self, client, user):
+        self.shelve(user, "Any")
+        assert client.get(SHELF).json()["filters"] == {"author": None}
+        body = client.get(SHELF, {"author": 999999}).json()
+        assert body["results"] == [] and body["filters"] == {"author": None}
+
+    def test_rating_minimum_and_unrated(self, client, user):
+        for title, rating in [("Five", 5), ("Four", 4), ("Three", 3), ("None", None)]:
+            self.shelve(user, title, rating=rating)
+        assert self.titles(client, rating="4", ordering="title") == ["Five", "Four"]
+        assert self.titles(client, rating="unrated") == ["None"]
+
+    def test_filters_combine_with_status(self, client, user):
+        mara = AuthorFactory(name="Mara Vell")
+        UserBookFactory(
+            user=user, book=BookFactory(title="A", authors=[mara]), status=S.FINISHED, rating=5
+        )
+        UserBookFactory(user=user, book=BookFactory(title="B", authors=[mara]), status=S.READING)
+        UserBookFactory(user=user, book=BookFactory(title="C"), status=S.FINISHED, rating=5)
+        assert self.titles(client, status="finished", author=mara.pk, rating="4") == ["A"]
+
+    def test_sort_by_last_name_with_particles_and_suffixes(self, client, user):
+        for title, name in [
+            ("Plain", "Andy Weir"),
+            ("Suffix", "Martin Luther King Jr."),
+            ("Particle Le", "Ursula K. Le Guin"),
+            ("Particle du", "Daphne du Maurier"),
+            ("Particle van", "Ludwig  VAN Beethoven"),
+            ("Roman numeral", "John Smith III"),
+        ]:
+            self.shelve(user, title, [name])
+        self.shelve(user, "No author")
+        assert self.titles(client, ordering="author") == [
+            "Particle du",  # du maurier
+            "Suffix",  # king
+            "Particle Le",  # le guin
+            "Roman numeral",  # smith
+            "Particle van",  # van beethoven
+            "Plain",  # weir
+            "No author",  # no key: last
+        ]
+
+    def test_author_sort_uses_the_first_author_then_title(self, client, user):
+        self.shelve(user, "Zebra", ["Andy Weir"])
+        self.shelve(user, "apple", ["Andy Weir", "Mara Vell"])
+        self.shelve(user, "Middle", ["Mara Vell", "Andy Weir"])
+        assert self.titles(client, ordering="author") == ["Middle", "apple", "Zebra"]
+
+    def test_sort_by_rating_highest_first_unrated_last_ties_by_title(self, client, user):
+        for title, rating in [("b", 4), ("A", 4), ("Top", 5), ("Unrated", None), ("Low", 1)]:
+            self.shelve(user, title, rating=rating)
+        assert self.titles(client, ordering="-rating") == ["Top", "A", "b", "Low", "Unrated"]
+
+    @pytest.mark.parametrize(
+        "params", [{"author": "abc"}, {"rating": "6"}, {"rating": "0"}, {"rating": "any"}]
+    )
+    def test_bad_filter_values_400(self, client, params):
+        assert client.get(SHELF, params).status_code == 400
+
+    def test_query_count_is_fixed_with_every_filter_and_sort(
+        self, client, user, django_assert_max_num_queries
+    ):
+        mara = AuthorFactory(name="Mara Vell")
+        for n in range(10):
+            ub = UserBookFactory(
+                user=user,
+                status=S.FINISHED,
+                rating=5,
+                book=BookFactory(title=f"Book {n}", authors=[mara, AuthorFactory()]),
+            )
+            ReadingLogFactory(user=user, book=ub.book)
+        # count + page + author prefetch + the filter author's name
+        for ordering in ("author", "-rating"):
+            with django_assert_max_num_queries(4):
+                response = client.get(
+                    SHELF,
+                    {"status": "finished", "author": mara.pk, "rating": "4", "ordering": ordering},
+                )
+            assert response.json()["count"] == 10
 
 
 class TestAdd:

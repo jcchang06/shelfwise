@@ -6,6 +6,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import (
     Count,
     DateField,
+    F,
     IntegerField,
     OuterRef,
     Prefetch,
@@ -13,13 +14,13 @@ from django.db.models import (
     Sum,
     Value,
 )
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, Lower
 from rest_framework import generics, serializers, status
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from catalog.models import Book, BookAuthor
+from catalog.models import Author, Book, BookAuthor
 from catalog.services.catalog import get_or_create_book
 from catalog.services.types import BookNotFoundError, BookSourceError
 from catalog.views import BookSourceUnavailable
@@ -27,13 +28,19 @@ from catalog.views import BookSourceUnavailable
 from .models import ReadingLog, UserBook
 from .serializers import AddToShelfSerializer, ShelfChangesSerializer, UserBookSerializer
 from .services import ShelfRuleError, apply_shelf_changes
+from .shelf_sort import with_author_sort_key
 
 ORDERINGS = {
     "-updated_at": ("-updated_at", "-id"),
     "title": ("book__title", "id"),
     "-finished_at": ("-finished_at", "-id"),
     "-created_at": ("-created_at", "-id"),
+    # First author's last name (shelf_sort.py), then title; books with no author last.
+    "author": (F("author_sort").asc(nulls_last=True), Lower("book__title"), "id"),
+    # Highest first, unrated last, ties by title.
+    "-rating": (F("rating").desc(nulls_last=True), Lower("book__title"), "id"),
 }
+RATING_FILTERS = ("1", "2", "3", "4", "5", "unrated")
 
 
 def shelf_for(user):
@@ -77,7 +84,11 @@ def _apply(user_book: UserBook, changes: dict) -> None:
 
 
 class ShelfListCreateView(generics.ListCreateAPIView):
-    """GET /api/shelf/?status=&book=&ordering=  ·  POST /api/shelf/"""
+    """GET /api/shelf/?status=&book=&author=&rating=&ordering=  ·  POST /api/shelf/
+
+    author=<id>: books crediting that author. rating=N: rated N stars or more;
+    rating=unrated: no rating. The response adds `filters: {author: {id, name} | null}`.
+    """
 
     serializer_class = UserBookSerializer
 
@@ -97,12 +108,41 @@ class ShelfListCreateView(generics.ListCreateAPIView):
                 raise serializers.ValidationError({"book": "Must be a book ID."})
             queryset = queryset.filter(book_id=int(book))
 
+        author = params.get("author")
+        if author:
+            if not author.isdigit():
+                raise serializers.ValidationError({"author": "Must be an author ID."})
+            # BookAuthor is unique per (book, author), so this can't duplicate rows.
+            queryset = queryset.filter(book__book_authors__author_id=int(author))
+
+        rating = params.get("rating")
+        if rating:
+            if rating not in RATING_FILTERS:
+                raise serializers.ValidationError(
+                    {"rating": "Must be 1 to 5 (that many stars and up) or unrated."}
+                )
+            if rating == "unrated":
+                queryset = queryset.filter(rating__isnull=True)
+            else:
+                queryset = queryset.filter(rating__gte=int(rating))
+
         ordering = params.get("ordering", "-updated_at")
         if ordering not in ORDERINGS:
             raise serializers.ValidationError(
                 {"ordering": f"Must be one of: {', '.join(ORDERINGS)}."}
             )
+        if ordering == "author":
+            queryset = with_author_sort_key(queryset)
         return queryset.order_by(*ORDERINGS[ordering])
+
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        response = super().list(request, *args, **kwargs)
+        author_id = request.query_params.get("author", "")
+        author = Author.objects.filter(pk=int(author_id)).first() if author_id else None
+        response.data["filters"] = {
+            "author": {"id": author.pk, "name": author.name} if author else None
+        }
+        return response
 
     def create(self, request: Request, *args, **kwargs) -> Response:
         body = AddToShelfSerializer(data=request.data)
