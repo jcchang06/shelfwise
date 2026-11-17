@@ -458,6 +458,43 @@ Running it on your real export (433 rows) turned up four problems, now fixed:
 - **Seed: 10,000 books: 9,098 popular, 902 recent (98 short), 0 my genres** (3,000 short: the local database has no qualifying shelf entries; the real build runs against Neon).
 - Fields: ISBN-13 on 9,926, page count on 9,781, cover on 9,207, year on 9,998. Median description 670 characters; no Markdown links or dividers left. 7,219 distinct authors.
 
+## C-3: Catalog seed, loading and removing (Phase 3, seed PR 2)
+
+`catalog/seed/load.py`, `seed_catalog`, and the new `Book.seeded_at`.
+
+- **Both seed commands print `dbinfo` first** ("Database: host/name as user").
+- **`build_catalog_seed` only reads, enforced:** the whole build runs in one Postgres `SET TRANSACTION READ ONLY` transaction (`catalog/seed/readonly.py`), so any write fails. Tests check a write inside fails ("read-only transaction") and that the command can't write. The seed file is the only thing it writes.
+- **`seed_catalog FILE [--dry-run]`:**
+  - Plans in memory first, so **`--dry-run` makes no writes at all.** Then it loads in batches of 500 books, one transaction each. Re-running is safe.
+  - A record is skipped if the catalog already has the book: same work key, same ISBN-13, or same normalized title + first author. This is checked against the catalog at load time, since the file may have been built against another database.
+  - **Authors:** matched by Open Library key, else an author with no key and the same normalized name (who gets the key), else created. This is the same rule as catalog saves, but resolved in memory with bulk inserts, not a query per author.
+  - Seeded books get `seeded_at`. They have descriptions and genres, so the nightly enrichment job never selects them.
+- **`seed_catalog --remove --dry-run`, then `--remove --apply <token>`:** deletes only seeded books with no shelf entry and no reading log, plus authors left with no books. The token is a hash of that exact plan, so `--apply` refuses if anything changed since the dry run (as `merge_duplicate_books` does).
+  - Authors that existed before and were given their key keep it.
+- **Local run** (the 10,000-book seed from seed PR 1):
+  - The dry run and the load agreed: 9,997 added (9,095 popular, 902 recent), 3 skipped as the same ISBN, 7,174 new authors, 45 matched (8 given their key).
+  - The load took under 2 seconds locally. A re-run adds 0. `merge_duplicate_books --dry-run`: no duplicates. Enrichment due: 0.
+  - Removal with the token returned the catalog to exactly 400 books and 156 authors; reloading worked.
+  - **Size:** `catalog_book` is 14 MB with 10,397 books; the whole local database is 29 MB (Neon free: 1 GB).
+
+### Loading production (run from your shell)
+
+After this PR is merged **and Render's deploy has finished** (it runs the `seeded_at` migration):
+
+```zsh
+cd backend
+read -rs "DATABASE_URL?Neon direct connection string: "; echo; export DATABASE_URL
+.venv/bin/python manage.py dbinfo                      # must show the ep-….neon.tech host
+.venv/bin/python manage.py build_catalog_seed --dumps dumps --out dumps/seed-neon.jsonl.gz --show-genres
+.venv/bin/python manage.py seed_catalog dumps/seed-neon.jsonl.gz --dry-run   # review the counts
+.venv/bin/python manage.py seed_catalog dumps/seed-neon.jsonl.gz
+.venv/bin/python manage.py merge_duplicate_books --dry-run                   # expect no duplicates
+unset DATABASE_URL
+rm dumps/*.txt.gz dumps/*.jsonl.gz                     # about 5 GB; rebuildable from the dated dump
+```
+
+The build reads your Neon shelf for the "my genres" pool, which was empty locally. Shell variables win over `.env` (`overwrite=False`), so the commands use Neon while `DATABASE_URL` is set.
+
 ## Phase 5 backlog
 
 Everything deferred so far, in one place, to pick up in Phase 5 (polish) or sooner if it becomes urgent. Each item links back to where it was decided.
