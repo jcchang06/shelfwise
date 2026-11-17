@@ -8,6 +8,8 @@ import { SHELF_STATUS_LABELS, type BookDetail, type ShelfEntry } from '../api/ty
 import { formatDate, yearOf } from '../dates';
 import { AddToShelfForm } from '../components/AddToShelfForm';
 import { BookCover } from '../components/BookCover';
+import { LogPagesForm } from '../components/logs/LogPagesForm';
+import { ReadingLogList } from '../components/logs/ReadingLogList';
 import { ReadingProgress } from '../components/ReadingProgress';
 import { RatingReviewForm } from '../components/shelf/RatingReviewForm';
 import { RemoveFromShelf } from '../components/shelf/RemoveFromShelf';
@@ -36,9 +38,13 @@ function BookDetails({ book }: { book: BookDetail }) {
         {book.genres.length ? <p className="book-meta">{book.genres.join(', ')}</p> : null}
         {link ? (
           <p className="book-meta">
-            <a href={link.url} target="_blank" rel="noopener noreferrer">
+            <a
+              href={link.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`${link.label} (opens in a new tab)`}
+            >
               {link.label}
-              <span className="visually-hidden"> (opens in a new tab)</span>
             </a>
           </p>
         ) : null}
@@ -122,14 +128,24 @@ export default function BookPage() {
           </div>
         ) : null}
         {entry.isSuccess && entry.data ? (
-          // Keyed by updated_at so each form resets to the saved values after a save.
-          <div key={entry.data.updated_at}>
+          <>
             <ShelfSummary entry={entry.data} />
-            <ShelfStatusForm entry={entry.data} onSaved={setAnnouncement} />
-            <RatingReviewForm entry={entry.data} onSaved={setAnnouncement} />
-            <ShelfDetailsForm entry={entry.data} onSaved={setAnnouncement} />
-            <RemoveFromShelf entry={entry.data} />
-          </div>
+            {/* First after the summary: logging today's pages is the most common action. */}
+            <section className="panel" aria-labelledby="reading-log-title">
+              <h2 id="reading-log-title">Reading log</h2>
+              <LogPagesForm entry={entry.data} onLogged={setAnnouncement} />
+              <ReadingLogList bookId={entry.data.book.id} onChanged={setAnnouncement} />
+            </section>
+            {/* Keyed so each form resets to the saved values after a save. A log can
+                change status and started_at without changing updated_at in the cache, so
+                those are in the key too. */}
+            <div key={`${entry.data.updated_at}|${entry.data.status}|${entry.data.started_at}`}>
+              <ShelfStatusForm entry={entry.data} onSaved={setAnnouncement} />
+              <RatingReviewForm entry={entry.data} onSaved={setAnnouncement} />
+              <ShelfDetailsForm entry={entry.data} onSaved={setAnnouncement} />
+              <RemoveFromShelf entry={entry.data} />
+            </div>
+          </>
         ) : null}
       </section>
     </>

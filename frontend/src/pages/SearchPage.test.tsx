@@ -105,7 +105,9 @@ describe('searching', () => {
       'https://books.google.com/googlebooks/images/poweredby.png',
     );
     expect(
-      within(resultItem('Project Hail Mary')).getByRole('link', { name: /view on google books/i }),
+      within(resultItem('Project Hail Mary')).getByRole('link', {
+        name: 'View Project Hail Mary on Google Books (opens in a new tab)',
+      }),
     ).toHaveAttribute('href', 'https://books.google.com/books?id=vol1');
     expect(screen.getByText('Andy Weir · 2021 · 496 pages')).toBeInTheDocument();
     expect(
@@ -122,10 +124,11 @@ describe('searching', () => {
     renderApp('/search?q=dune');
     expect(await screen.findByRole('link', { name: 'Open Library' })).toBeInTheDocument();
     expect(screen.queryByRole('img', { name: 'Powered by Google' })).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /view on open library/i })).toHaveAttribute(
-      'href',
-      'https://openlibrary.org/works/OL1W',
-    );
+    expect(
+      screen.getByRole('link', {
+        name: 'View Project Hail Mary on Open Library (opens in a new tab)',
+      }),
+    ).toHaveAttribute('href', 'https://openlibrary.org/works/OL1W');
   });
 
   it('searches on submit and puts the query in the URL', async () => {

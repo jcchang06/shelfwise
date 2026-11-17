@@ -30,9 +30,13 @@ export function SearchResultItem({ result, onAdded }: SearchResultItemProps) {
           <p className="search-result-description">{result.description}</p>
         ) : null}
         <p className="search-result-source">
-          <a href={sourcePageUrl(result)} target="_blank" rel="noopener noreferrer">
+          <a
+            href={sourcePageUrl(result)}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`View ${result.title} on ${SOURCE_NAMES[result.source]} (opens in a new tab)`}
+          >
             View on {SOURCE_NAMES[result.source]}
-            <span className="visually-hidden">: {result.title} (opens in a new tab)</span>
           </a>
         </p>
         {result.shelf && result.book_id !== null ? (

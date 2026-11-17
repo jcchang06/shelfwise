@@ -36,6 +36,7 @@ function setup({
     ...authHandlers(),
     http.get(api('/books/42/'), () => (book instanceof Response ? book : HttpResponse.json(book))),
     http.get(api('/shelf/'), () => HttpResponse.json(page(current ? [current] : []))),
+    http.get(api('/logs/'), () => HttpResponse.json(page([]))), // logs: BookPageLogs.test.tsx
     http.patch(api('/shelf/7/'), async ({ request }) => {
       const body = (await request.json()) as Record<string, unknown>;
       captured.patches.push(body);
@@ -76,10 +77,9 @@ describe('book details', () => {
     expect(screen.getByText('Science Fiction, Thrillers')).toBeInTheDocument();
     expect(screen.getByText('A lone astronaut must save the earth.')).toBeInTheDocument();
     expect(screen.getByText('Except he can’t remember his name.')).toBeInTheDocument(); // own paragraph
-    expect(screen.getByRole('link', { name: /view on google books/i })).toHaveAttribute(
-      'href',
-      'https://books.google.com/books?id=vol1',
-    );
+    expect(
+      screen.getByRole('link', { name: 'View on Google Books (opens in a new tab)' }),
+    ).toHaveAttribute('href', 'https://books.google.com/books?id=vol1');
   });
 
   it('shows not found for an unknown book', async () => {
