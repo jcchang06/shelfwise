@@ -53,6 +53,9 @@ class Book(models.Model):
     # When the nightly enrichment job (C-6) last looked this book up in Open Library, found
     # or not. Books still missing data are retried 30 days later, not every night.
     enrichment_checked_at = models.DateTimeField(null=True, blank=True)
+    # Set when the book came from the catalog seed (C-3, seed_catalog). `seed_catalog
+    # --remove` deletes only seeded books nobody has shelved or logged.
+    seeded_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

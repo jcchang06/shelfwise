@@ -1,6 +1,7 @@
 """Build the catalog seed (C-3) from Open Library dumps. Reads the database (catalog for
-duplicates, shelf entries for the reader's genres) but never writes to it; loading the
-file is seed_catalog's job.
+duplicates, shelf entries for the reader's genres) but never writes to it: the whole build
+runs in a READ ONLY transaction, so a write would fail. Loading the file is seed_catalog's
+job. The first line printed is the database (dbinfo), so you can see where it reads.
 
     # dumps from https://openlibrary.org/developers/dumps in backend/dumps/ (gitignored):
     # ol_dump_reading-log_*.txt.gz, ol_dump_ratings_*.txt.gz (optional),
@@ -14,10 +15,12 @@ prints those genres (local use only; never paste into PRs or logs).
 
 from pathlib import Path
 
+from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 
 from catalog.seed import dumps
 from catalog.seed.build import MIN_DESCRIPTION_CHARS, build_seed, taste_genres, write_seed
+from catalog.seed.readonly import read_only_transaction
 from catalog.services.types import BookSourceError
 
 
@@ -39,11 +42,13 @@ class Command(BaseCommand):
         parser.add_argument("--show-genres", action="store_true")
 
     def handle(self, *args, dumps_dir: Path, out: Path, target, candidates, show_genres, **opts):
-        genres = taste_genres()
+        call_command("dbinfo", stdout=self.stdout)
         try:
-            books, report = build_seed(
-                dumps_dir, target, candidates, genres, progress=self.stdout.write
-            )
+            with read_only_transaction():
+                genres = taste_genres()
+                books, report = build_seed(
+                    dumps_dir, target, candidates, genres, progress=self.stdout.write
+                )
         except (dumps.DumpError, BookSourceError) as exc:
             raise CommandError(str(exc)) from exc
         write_seed(out, books)
