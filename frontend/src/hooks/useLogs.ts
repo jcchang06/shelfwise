@@ -1,8 +1,9 @@
-import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
   deleteLog,
   listLogs,
+  listLogsOn,
   logPages,
   updateLog,
   type LogChanges,
@@ -49,6 +50,7 @@ function afterLogWrite(
       : entry,
   );
   void queryClient.invalidateQueries({ queryKey: logsKey(bookId) });
+  void queryClient.invalidateQueries({ queryKey: ['logs', 'today'] }); // dashboard "Today: N"
   void queryClient.invalidateQueries({ queryKey: shelfEntryKey(bookId) });
   void queryClient.invalidateQueries({ queryKey: ['shelf', 'list'] });
   void queryClient.invalidateQueries({ queryKey: ['stats'] });
@@ -82,5 +84,18 @@ export function useDeleteLog() {
   return useMutation({
     mutationFn: (log: ReadingLog) => deleteLog(log.id),
     onSuccess: (_result, log) => afterLogWrite(queryClient, log.book_id, null, -1),
+  });
+}
+
+/** Pages logged today per book ({bookId: pages}), for the dashboard's quick-log cards. */
+export function useTodayLogs(today: string) {
+  return useQuery({
+    queryKey: ['logs', 'today', today] as const,
+    queryFn: () => listLogsOn(today),
+    select: (page) =>
+      Object.fromEntries(page.results.map((log) => [log.book_id, log.pages_read])) as Record<
+        number,
+        number
+      >,
   });
 }

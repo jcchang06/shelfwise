@@ -350,7 +350,7 @@ describe('adding to the shelf', () => {
 describe('navigation', () => {
   it('has a Search link in the main navigation', async () => {
     setup(() => HttpResponse.json(page([])));
-    renderApp('/dashboard');
+    renderApp('/search');
     const nav = await screen.findByRole('navigation', { name: 'Main' });
     expect(within(nav).getByRole('link', { name: 'Search' })).toHaveAttribute('href', '/search');
   });
