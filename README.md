@@ -154,9 +154,36 @@ Do these steps once, in this order.
 
 **After that:**
 - **Deploys happen automatically** when CI passes on `main`, and only for changes under `backend/` or to `render.yaml`. Migrations run during the build, so keep them backwards-compatible: if a deploy fails after migrating, the old code keeps running against the new schema.
-- **When the frontend is deployed:**
-  - build it with `VITE_API_BASE_URL=https://shelfwise-api-et8p.onrender.com/api` (a production build fails without an https URL)
-  - change `CORS_ALLOWED_ORIGINS` in the Render dashboard to the frontend's URL
+
+### Frontend (static site)
+
+The `shelfwise` static site in `render.yaml` builds `frontend/` and publishes `frontend/dist`. It's free, served from Render's CDN, and doesn't sleep. In `render.yaml`:
+- **`NODE_VERSION`** is set to `22`, because new services default to Node 24.
+- **`VITE_API_BASE_URL`** is set to `https://shelfwise-api-et8p.onrender.com/api`. A production build without an https URL fails.
+- **A single-page-app rewrite** sends `/*` to `/index.html`.
+- **Security and caching headers** are set (listed below).
+
+1. **Merge to `main`.** The Blueprint sync creates the new static site; there's nothing to enter. Check Dashboard → Blueprints if it doesn't appear.
+2. **Note the site's URL**, for example `https://shelfwise.onrender.com`. Render may add a suffix, as it did for the API.
+3. **Allow it in the API's CORS settings.** In the **API** service (`shelfwise-api`), go to Environment and set `CORS_ALLOWED_ORIGINS` to `https://<frontend-host>,http://localhost:5173`, keeping localhost for `npm run dev:live`. Saving redeploys the API.
+4. **Check it works:**
+   - log in on the live site
+   - reload `/dashboard` directly, which checks the rewrite
+   - look at the browser console for CSP or CORS errors
+
+**If the Blueprint sync rejects `routes` or `headers`,** remove them from `render.yaml` and add the same rules in the dashboard under the static site → **Redirects/Rewrites** and → **Headers**:
+
+| Kind | Source / path | Destination / name | Value |
+| --- | --- | --- | --- |
+| Rewrite | `/*` | `/index.html` | |
+| Header | `/assets/*` | `Cache-Control` | `public, max-age=31536000, immutable` |
+| Header | `/*` | `Content-Security-Policy` | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://books.google.com https://*.googleusercontent.com https://covers.openlibrary.org https://archive.org https://*.archive.org; connect-src 'self' https://shelfwise-api-et8p.onrender.com; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'` |
+| Header | `/*` | `X-Content-Type-Options` | `nosniff` |
+| Header | `/*` | `Referrer-Policy` | `same-origin` |
+| Header | `/*` | `X-Frame-Options` | `DENY` |
+| Header | `/*` | `Strict-Transport-Security` | `max-age=86400` |
+
+**If the API's URL ever changes,** update `VITE_API_BASE_URL` and the CSP's `connect-src` together in `render.yaml`.
 
 ## Layout
 
