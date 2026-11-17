@@ -9,8 +9,8 @@ Status change side effects (old -> new, only when the status actually changes):
     other -> reading     started_at = today only if empty (dnf -> reading resumes the
                          same read, so its original start is kept)
     any -> finished      finished_at = today (overwrites, so a re-read gets the new date)
-    any -> dnf           rating cleared; dnf_at = today; dnf_page = pages logged (capped at
-                         page_count, null if no logs); dnf_reason required
+    any -> dnf           rating cleared; dnf_at = today; dnf_page = pages logged in the
+                         current read (capped at page_count, null if none); dnf_reason required
     dnf -> any           all DNF fields cleared (logs are kept)
     finished -> reading / want_to_read
                          rating and finished_at kept (a re-read keeps its stars)
@@ -21,7 +21,7 @@ Values sent in the request always win over these defaults.
 import datetime as dt
 from typing import Any
 
-from django.db.models import Sum
+from django.db.models import QuerySet, Sum
 from django.utils import timezone
 
 from .models import ReadingLog, UserBook
@@ -45,11 +45,22 @@ def _empty(field: str) -> Any:
     return "" if field in ("dnf_reason", "dnf_note", "review") else None
 
 
+def current_read_logs(user_book: UserBook) -> QuerySet[ReadingLog]:
+    """This user's logs for this book in the current read: on or after started_at.
+
+    With no started_at, every log counts. Earlier logs belong to a previous read, so a
+    re-read's progress and DNF page start from zero. The SQL version for list queries
+    is in views.shelf_for(); keep the two in step.
+    """
+    logs = ReadingLog.objects.filter(user=user_book.user_id, book=user_book.book_id)
+    if user_book.started_at:
+        logs = logs.filter(log_date__gte=user_book.started_at)
+    return logs
+
+
 def default_dnf_page(user_book: UserBook) -> int | None:
-    """Total pages this user logged for this book, capped at the book's page count."""
-    total = ReadingLog.objects.filter(user=user_book.user_id, book=user_book.book_id).aggregate(
-        total=Sum("pages_read")
-    )["total"]
+    """Pages logged in the current read, capped at the book's page count."""
+    total = current_read_logs(user_book).aggregate(total=Sum("pages_read"))["total"]
     if not total:
         return None
     page_count = user_book.book.page_count

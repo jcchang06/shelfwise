@@ -322,3 +322,21 @@ class TestRetrieveAndDelete:
         assert not UserBook.objects.filter(pk=ub.pk).exists()
         assert list(ReadingLog.objects.filter(user=user)) == [other_book_log]
         assert Book.objects.filter(pk=ub.book_id).exists()  # the catalog book stays
+
+
+def test_pages_logged_counts_current_read_but_log_count_counts_all(client, user):
+    # SQL version of services.current_read_logs (views.shelf_for) must agree with it.
+    ub = UserBookFactory(
+        user=user,
+        status=S.READING,
+        started_at=dt.date(2026, 11, 1),
+        finished_at=dt.date(2025, 3, 9),  # a re-read: first read ended in 2025
+    )
+    ReadingLogFactory(user=user, book=ub.book, log_date=dt.date(2025, 3, 1), pages_read=300)
+    ReadingLogFactory(user=user, book=ub.book, log_date=dt.date(2026, 11, 1), pages_read=20)
+    ReadingLogFactory(user=user, book=ub.book, log_date=dt.date(2026, 11, 2), pages_read=15)
+
+    row = client.get(detail(ub)).json()
+
+    assert row["pages_logged"] == 35
+    assert row["reading_log_count"] == 3  # removing the book deletes all three
