@@ -118,6 +118,59 @@ describe('author page', () => {
     expect(screen.getByText(/3 books, from Open Library and your catalog/)).toBeInTheDocument();
   });
 
+  it('links to your books by this author on the shelf holding most of them', async () => {
+    const shelved = (status: 'finished' | 'reading', key: string) =>
+      work({ work_key: key, book_id: Number(key.slice(2, -1)), shelf: { id: 1, status } });
+    setup(
+      author({
+        groups: [
+          {
+            series_name: null,
+            works: [
+              shelved('reading', 'OL1W'),
+              shelved('finished', 'OL2W'),
+              shelved('finished', 'OL3W'),
+              work({ work_key: 'OL4W' }), // not shelved
+            ],
+          },
+        ],
+      }),
+    );
+    renderApp('/authors/9');
+    expect(
+      await screen.findByRole('link', { name: 'Your books by this author (3)' }),
+    ).toHaveAttribute('href', '/shelf?status=finished&author=9');
+  });
+
+  it('breaks a tie in shelf bar order (Reading before Finished)', async () => {
+    setup(
+      author({
+        groups: [
+          {
+            series_name: null,
+            works: [
+              work({ work_key: 'OL1W', book_id: 1, shelf: { id: 1, status: 'finished' } }),
+              work({ work_key: 'OL2W', book_id: 2, shelf: { id: 2, status: 'reading' } }),
+            ],
+          },
+        ],
+      }),
+    );
+    renderApp('/authors/9');
+    expect(
+      await screen.findByRole('link', { name: 'Your books by this author (2)' }),
+    ).toHaveAttribute('href', '/shelf?status=reading&author=9');
+  });
+
+  it('shows no shelf link when none of the books are shelved', async () => {
+    setup(author({ groups: [{ series_name: null, works: [work()] }] }));
+    renderApp('/authors/9');
+    await screen.findByRole('heading', { level: 1, name: 'Mara Vell' });
+    expect(
+      screen.queryByRole('link', { name: /Your books by this author/ }),
+    ).not.toBeInTheDocument();
+  });
+
   it('adds a book from Open Library to the shelf, then shows it there', async () => {
     const posts = setup();
     renderApp('/authors/9');

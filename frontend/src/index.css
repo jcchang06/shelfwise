@@ -445,6 +445,16 @@ textarea {
   border-bottom-color: var(--accent);
 }
 
+.shelf-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+}
+
+.active-filter {
+  margin: 0 0 0.75rem;
+}
+
 .shelf-sort {
   display: flex;
   align-items: center;

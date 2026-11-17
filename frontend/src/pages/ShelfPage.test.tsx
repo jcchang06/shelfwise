@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
@@ -19,11 +19,22 @@ function setup(respond: (url: URL) => ShelfEntry[] | Response) {
       const url = new URL(request.url);
       requests.push(url);
       const result = respond(url);
-      return result instanceof Response ? result : HttpResponse.json(page(result));
+      if (result instanceof Response) return result;
+      const author = url.searchParams.get('author');
+      return HttpResponse.json({
+        ...page(result),
+        filters: { author: author ? { id: Number(author), name: 'Mara Vell' } : null },
+      });
     }),
   );
   return requests;
 }
+
+/** A shelf list page as the API returns it (with `filters`). */
+const shelfPage = (...args: Parameters<typeof page<ShelfEntry>>) => ({
+  ...page(...args),
+  filters: { author: null },
+});
 
 const row = (title: string) =>
   screen.getByRole('link', { name: title }).closest('li') as HTMLElement;
@@ -133,7 +144,7 @@ describe('shelf page', () => {
     const requests = setup((url) =>
       url.searchParams.get('page') === '2'
         ? HttpResponse.json(
-            page([
+            shelfPage([
               shelfEntry({
                 id: 8,
                 status: 'reading',
@@ -142,7 +153,7 @@ describe('shelf page', () => {
             ]),
           )
         : HttpResponse.json(
-            page([shelfEntry({ status: 'reading' })], 'http://x/api/shelf/?page=2'),
+            shelfPage([shelfEntry({ status: 'reading' })], 'http://x/api/shelf/?page=2'),
           ),
     );
     renderApp('/shelf');
@@ -212,3 +223,83 @@ describe('shelf bar', () => {
     expect(within(bar()).getByRole('link', { name: 'Reading' })).toHaveFocus();
   });
 });
+
+describe('filters and new sorts', () => {
+  it('filters by rating through the URL, keeping the shelf and sort', async () => {
+    const requests = setup(() => [shelfEntry({ status: 'finished', rating: 5 })]);
+    renderApp('/shelf?status=finished&sort=title');
+    await screen.findByRole('link', { name: 'Project Hail Mary' });
+    await userEvent.setup().selectOptions(screen.getByRole('combobox', { name: 'Rating' }), '4');
+
+    const last = await waitForRequest(requests, (u) => u.searchParams.get('rating') === '4');
+    expect(last.searchParams.get('status')).toBe('finished');
+    expect(last.searchParams.get('ordering')).toBe('title');
+    expect(
+      within(screen.getByRole('combobox', { name: 'Rating' }))
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['Any rating', '5★', '4★ and up', '3★ and up', '2★ and up', 'Unrated']);
+  });
+
+  it('offers author and rating sorts', async () => {
+    const requests = setup(() => [shelfEntry({ status: 'reading' })]);
+    renderApp('/shelf');
+    await screen.findByRole('link', { name: 'Project Hail Mary' });
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Sort by' }), 'author');
+    await waitForRequest(requests, (u) => u.searchParams.get('ordering') === 'author');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Sort by' }), 'rating');
+    await waitForRequest(requests, (u) => u.searchParams.get('ordering') === '-rating');
+  });
+
+  it('names the author filter and clears it, keeping focus on the page', async () => {
+    const requests = setup(() => [shelfEntry({ status: 'finished' })]);
+    renderApp('/shelf?status=finished&author=9&rating=4');
+    expect(await screen.findByText(/By Mara Vell/)).toBeInTheDocument();
+    expect(requests[0].searchParams.get('author')).toBe('9');
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Clear the author filter' }));
+    const last = await waitForRequest(requests, (u) => !u.searchParams.has('author'));
+    expect(last.searchParams.get('rating')).toBe('4'); // the other filter stays
+    expect(screen.queryByText(/By Mara Vell/)).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1 })).toHaveFocus();
+  });
+
+  it('says when nothing matches the filters, with a way to clear them', async () => {
+    const requests = setup(() => []);
+    renderApp('/shelf?status=finished&rating=unrated');
+    expect(await screen.findByText(/No finished books match these filters/)).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Clear filters' }));
+    await waitForRequest(requests, (u) => !u.searchParams.has('rating'));
+    expect(
+      await screen.findByText("You haven't finished any books yet.", { exact: false }),
+    ).toBeInTheDocument();
+  });
+
+  it('ignores a malformed author id in the URL', async () => {
+    const requests = setup(() => []);
+    renderApp('/shelf?author=abc');
+    await screen.findByText(/not reading anything/);
+    expect(requests[0].searchParams.has('author')).toBe(false);
+  });
+
+  it('keeps the filters when switching shelves in the shelf bar', async () => {
+    setup(() => []);
+    renderApp('/shelf?status=finished&sort=author&author=9&rating=4');
+    await screen.findByText(/By Mara Vell/);
+    expect(
+      within(screen.getByRole('navigation', { name: 'Shelves' })).getByRole('link', {
+        name: 'Reading',
+      }),
+    ).toHaveAttribute('href', '/shelf?status=reading&sort=author&author=9&rating=4');
+  });
+});
+
+async function waitForRequest(requests: URL[], match: (url: URL) => boolean): Promise<URL> {
+  let found: URL | undefined;
+  await waitFor(() => {
+    found = [...requests].reverse().find(match);
+    expect(found).toBeDefined();
+  });
+  return found as URL;
+}
