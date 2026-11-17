@@ -56,7 +56,8 @@ export interface ShelfFilters {
 
 /** GET /api/shelf/ page, plus the author filter's name for the shelf page. */
 export type ShelfListPage = Paginated<ShelfEntry> & {
-  filters: { author: { id: number; name: string } | null };
+  // Optional: a frontend deployed before its backend gets responses without it.
+  filters?: { author: { id: number; name: string } | null };
 };
 
 export function addToShelf(payload: AddToShelfPayload): Promise<ShelfEntry> {

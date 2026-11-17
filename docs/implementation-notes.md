@@ -246,6 +246,8 @@ Applies to adding from search, the book page's status, details, and rating and r
 - **Shelf page:** a Rating menu (Any rating, 5★, 4★ and up … 2★ and up, Unrated) next to Sort by, which gains "Author (A–Z)" and "Rating (highest first)". An author filter shows "By <name>" with Clear, which returns focus to the heading. With filters on and nothing matching: "No finished books match these filters" and Clear filters. Everything is in the URL.
   - The rating options are a list, not an object: JavaScript orders number-like keys ascending, which put 2★ first.
 - **Shelf bar** keeps the sort and both filters when switching shelves on the shelf page, so one author can be followed across shelves.
+- **`filters` is optional in the frontend type.** Testing with `dev:live` before the backend was deployed, the shelf page crashed reading `filters.author`. A missing `filters` now means no author filter (shown as "By this author"); a test covers an older API's response. Rule, now in CLAUDE.md: new response fields are optional on the frontend.
+- **Error boundary** (`components/ErrorBoundary.tsx`): a page that throws while rendering shows "Something went wrong" with Reload, and logs `Shelfwise: a page crashed.` with the error and component stack to the console. One wraps each page inside `AppShell`, so the header and shelf bar stay usable; another wraps all routes (login and not-found included). Both reset when the path changes.
 - **Author page:** "Your books by this author (N)" opens the shelf holding most of them, ties in shelf bar order, filtered to that author. Shown only when at least one is shelved.
 
 ## Dashboard (built Nov 16, 2026)

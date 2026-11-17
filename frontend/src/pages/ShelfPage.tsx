@@ -50,7 +50,7 @@ export default function ShelfPage() {
   const shelf = useShelfList(status, sort, filters);
 
   const entries = shelf.data?.pages.flatMap((page) => page.results) ?? [];
-  const author = shelf.data?.pages[0]?.filters.author ?? null;
+  const author = shelf.data?.pages[0]?.filters?.author ?? null; // missing on an older API
   const announce = (location.state as ShelfLocationState | null)?.announce ?? '';
 
   /** Change some URL options, keeping the rest; null removes one. */

@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { setRefreshToken } from '../api/tokens';
 import type { ShelfEntry } from '../api/types';
@@ -292,6 +292,43 @@ describe('filters and new sorts', () => {
         name: 'Reading',
       }),
     ).toHaveAttribute('href', '/shelf?status=reading&sort=author&author=9&rating=4');
+  });
+});
+
+describe('resilience', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('works with an older API that sends no filters (frontend deployed first)', async () => {
+    setRefreshToken('refresh-1');
+    server.use(
+      ...authHandlers(),
+      http.get(api('/shelf/'), () => HttpResponse.json(page([shelfEntry({ status: 'finished' })]))),
+    );
+    renderApp('/shelf?status=finished&author=9');
+    expect(await screen.findByRole('link', { name: 'Project Hail Mary' })).toBeInTheDocument();
+    expect(screen.getByText(/By this author/)).toBeInTheDocument();
+  });
+
+  it('shows "Something went wrong" instead of a blank page when the page crashes', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    setRefreshToken('refresh-1');
+    server.use(
+      ...authHandlers(),
+      // A malformed entry (no book) makes ShelfRow throw while rendering.
+      http.get(api('/shelf/'), () => HttpResponse.json(page([{ id: 1, status: 'reading' }]))),
+    );
+    renderApp('/shelf');
+    expect(
+      await screen.findByRole('heading', { name: 'Something went wrong' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reload' })).toBeInTheDocument();
+    // The page's own boundary keeps the navigation, so the reader can go elsewhere.
+    expect(screen.getByRole('navigation', { name: 'Main' })).toBeInTheDocument();
+    expect(console.error).toHaveBeenCalledWith(
+      'Shelfwise: a page crashed.',
+      expect.any(Error),
+      expect.any(String),
+    );
   });
 });
 
