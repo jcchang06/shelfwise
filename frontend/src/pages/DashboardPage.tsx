@@ -12,9 +12,11 @@ import { useStats } from '../hooks/useStats';
 // Chart.js lives in its own chunk, downloaded only when the dashboard renders.
 const DashboardCharts = lazy(() => import('../components/charts/DashboardCharts'));
 
+const NO_FILTERS = { author: null, rating: null } as const;
+
 function QuickLogSection({ onLogged }: { onLogged: (message: string) => void }) {
   const today = localDateISO();
-  const reading = useShelfList('reading', 'updated');
+  const reading = useShelfList('reading', 'updated', NO_FILTERS);
   const todayLogs = useTodayLogs(today);
   const entries = reading.data?.pages.flatMap((page) => page.results) ?? [];
 

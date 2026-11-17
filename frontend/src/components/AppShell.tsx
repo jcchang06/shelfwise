@@ -1,11 +1,13 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthContext';
+import { ErrorBoundary } from './ErrorBoundary';
 import { ShelfBar } from './ShelfBar';
 
 /** Layout for logged-in pages: skip link, navigation and the main landmark. */
 export function AppShell() {
   const { user, logout } = useAuth();
+  const { pathname } = useLocation();
   return (
     <>
       <a className="skip-link" href="#main">
@@ -30,7 +32,9 @@ export function AppShell() {
       </header>
       <ShelfBar />
       <main id="main" tabIndex={-1}>
-        <Outlet />
+        <ErrorBoundary resetKey={pathname}>
+          <Outlet />
+        </ErrorBoundary>
       </main>
     </>
   );

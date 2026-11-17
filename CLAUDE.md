@@ -70,6 +70,7 @@ shelfwise/
 - Python: `ruff` for lint + format, type hints on service functions, `pytest` + `pytest-django` + `factory_boy`. Target 70%+ backend coverage.
 - Frontend: ESLint + Prettier, TypeScript strict, small components, all API calls go through `src/api/`.
 - API: REST, JSON, versioned under `/api/`. Paginate list endpoints.
+- Deploy order: the frontend may go live slightly before the backend. Mark new response fields optional in the frontend types and handle them missing; never crash on an older API's response.
 - Accessibility: keyboard-navigable UI, labels on inputs, charts get a text summary.
 - Keep migrations small and committed. Don't edit old migrations.
 

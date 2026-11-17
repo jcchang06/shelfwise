@@ -86,7 +86,7 @@ P0 is the MVP (tracker and catalog). P1 completes the three-feature loop. P2 is 
 | ID | Module | Requirement | Priority |
 | --- | --- | --- | --- |
 | T-1 | Tracker | Email and password sign-up, login and JWT auth | P0 |
-| T-2 | Tracker | Add, update and remove books on a shelf with status Want to read, Reading, Finished or Did not finish (DNF) | P0 |
+| T-2 | Tracker | Add, update and remove books on a shelf with status Want to read, Reading, Finished or Did not finish (DNF); filter a shelf by author and by rating (a minimum, or unrated); sort it by the first author's last name (surname particles like "le" or "du" kept, suffixes like Jr. ignored) or by rating (highest first, unrated last) | P0 |
 | T-3 | Tracker | Log pages read per day per book; edit or delete a log | P0 |
 | T-4 | Tracker | Rate 1 to 5 stars and write an optional review | P0 |
 | T-5 | Tracker | Dashboard: pages per month, books per year, genre mix, rating distribution; DNF books count separately, not as finished | P0 |

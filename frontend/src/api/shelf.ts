@@ -29,9 +29,36 @@ export const SHELF_SORTS = {
   title: { ordering: 'title', label: 'Title' },
   finished: { ordering: '-finished_at', label: 'Finished date' },
   added: { ordering: '-created_at', label: 'Date added' },
+  author: { ordering: 'author', label: 'Author (A–Z)' },
+  rating: { ordering: '-rating', label: 'Rating (highest first)' },
 } as const;
 
 export type ShelfSort = keyof typeof SHELF_SORTS;
+
+/**
+ * Rating filter values, as in the URL and the API (N = N stars and up), in menu order.
+ * A list, not an object: JavaScript orders number-like object keys ascending.
+ */
+export const RATING_FILTERS = [
+  { value: '5', label: '5★' },
+  { value: '4', label: '4★ and up' },
+  { value: '3', label: '3★ and up' },
+  { value: '2', label: '2★ and up' },
+  { value: 'unrated', label: 'Unrated' },
+] as const;
+
+export type RatingFilter = (typeof RATING_FILTERS)[number]['value'];
+
+export interface ShelfFilters {
+  author: number | null;
+  rating: RatingFilter | null;
+}
+
+/** GET /api/shelf/ page, plus the author filter's name for the shelf page. */
+export type ShelfListPage = Paginated<ShelfEntry> & {
+  // Optional: a frontend deployed before its backend gets responses without it.
+  filters?: { author: { id: number; name: string } | null };
+};
 
 export function addToShelf(payload: AddToShelfPayload): Promise<ShelfEntry> {
   return apiPost<ShelfEntry>('/shelf/', payload);
@@ -40,14 +67,17 @@ export function addToShelf(payload: AddToShelfPayload): Promise<ShelfEntry> {
 export function listShelf(
   status: ShelfStatus,
   sort: ShelfSort,
+  filters: ShelfFilters,
   page = 1,
-): Promise<Paginated<ShelfEntry>> {
+): Promise<ShelfListPage> {
   const params = new URLSearchParams({
     status,
     ordering: SHELF_SORTS[sort].ordering,
     page: String(page),
   });
-  return apiGet<Paginated<ShelfEntry>>(`/shelf/?${params}`);
+  if (filters.author !== null) params.set('author', String(filters.author));
+  if (filters.rating !== null) params.set('rating', filters.rating);
+  return apiGet<ShelfListPage>(`/shelf/?${params}`);
 }
 
 /** The caller's entry for a catalog book, or null if it isn't on their shelf. */

@@ -4,11 +4,12 @@ import { Link, useParams } from 'react-router-dom';
 import type { AuthorDetail, AuthorWork } from '../api/authors';
 import { ApiError } from '../api/client';
 import { formError } from '../api/errors';
-import { SHELF_STATUS_LABELS } from '../api/types';
+import { SHELF_STATUS_LABELS, type ShelfStatus } from '../api/types';
 import { AddToShelfForm, type AddTarget } from '../components/AddToShelfForm';
 import { BookCover } from '../components/BookCover';
 import { MetaParts } from '../components/MetaParts';
 import { useAuthor } from '../hooks/useAuthor';
+import { SHELVES, shelfPath } from '../shelves';
 
 function seriesNumber(number: string | null): string {
   return number ? `#${number.replace(/\.0$/, '')}` : '';
@@ -62,6 +63,22 @@ function WorkItem({ work, onAdded }: { work: AuthorWork; onAdded: (message: stri
   );
 }
 
+/** The shelf holding most of the reader's books by this author (ties: shelf bar order). */
+function mainShelf(author: AuthorDetail): { status: ShelfStatus; count: number } | null {
+  const counts = new Map<ShelfStatus, number>();
+  for (const group of author.groups) {
+    for (const work of group.works) {
+      if (work.shelf) counts.set(work.shelf.status, (counts.get(work.shelf.status) ?? 0) + 1);
+    }
+  }
+  const total = [...counts.values()].reduce((sum, n) => sum + n, 0);
+  if (!total) return null;
+  const status = SHELVES.reduce((best, s) =>
+    (counts.get(s) ?? 0) > (counts.get(best) ?? 0) ? s : best,
+  );
+  return { status, count: total };
+}
+
 function groupHeading(seriesName: string | null, onlyGroup: boolean): string {
   if (seriesName) return `${seriesName} series`;
   return onlyGroup ? 'Books' : 'Other books';
@@ -70,9 +87,17 @@ function groupHeading(seriesName: string | null, onlyGroup: boolean): string {
 function AuthorWorks({ author }: { author: AuthorDetail }) {
   const [announcement, setAnnouncement] = useState('');
   const count = author.groups.reduce((sum, group) => sum + group.works.length, 0);
+  const shelved = mainShelf(author);
   return (
     <>
       <h1>{author.name}</h1>
+      {shelved ? (
+        <p>
+          <Link to={shelfPath(shelved.status, { author: author.id })}>
+            Your books by this author ({shelved.count})
+          </Link>
+        </p>
+      ) : null}
       <p className="visually-hidden" role="status">
         {announcement}
       </p>

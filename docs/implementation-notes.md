@@ -78,7 +78,7 @@ All are under `/api/shelf/`, all require login, and all are filtered to `request
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/api/shelf/?status=&book=&ordering=` | Paginated list. `ordering` is one of `-updated_at` (default), `title`, `-finished_at`, `-created_at` |
+| GET | `/api/shelf/?status=&book=&author=&rating=&ordering=` | Paginated list, plus `filters: {author: {id, name} \| null}`. `author=<id>`: books crediting that author. `rating=1`–`5`: that many stars and up; `rating=unrated`: no rating. `ordering` is one of `-updated_at` (default), `title`, `-finished_at`, `-created_at`, `author`, `-rating`. Filters combine with `status` and each other; bad values are 400s |
 | POST | `/api/shelf/` | Add `{book_id}` or `{source, source_id}`, the second form saving to the catalog first. Optional `status` (default `want_to_read`) and fields. Returns 201, or **409 with the existing entry's `id`** if the book is already on the shelf |
 | GET / PATCH / DELETE | `/api/shelf/{id}/` | PATCH only, no PUT. DELETE returns 204 |
 
@@ -234,6 +234,21 @@ Applies to adding from search, the book page's status, details, and rating and r
 - **On `/shelf`** the current shelf has `aria-current="page"` and switching keeps `?sort=`. The heading names the shelf ("Your shelf: Finished"), since the tabs are gone. Elsewhere, no link is marked current.
 - **The book page's "On your shelf · Reading" badge** links to that shelf. The main nav's "Shelf" item still opens Reading.
 - **Cost:** one row (about 44px) on every page, including above the dashboard's quick log. Agreed as acceptable.
+
+## Shelf filters and sorts (T-2, Phase 3)
+
+- **API:** see the shelf endpoints table. Still a fixed number of queries (count, page, the author prefetch, plus one for the filter author's name); a test checks it with every filter and sort on.
+- **`ordering=author`:** the first author's last name, then title, case-insensitive; books with no author last. Worked out in Postgres (`tracking/shelf_sort.py`), on the lowercased name with whitespace collapsed:
+  1. Strip a trailing suffix: Jr., Sr., II, III, IV.
+  2. If the word before the last one is a surname particle (le, la, de, du, da, di, del, van, von, der), the key is "particle last": "Ursula K. Le Guin" sorts under "le guin", "Daphne du Maurier" under "du maurier" (Nov 17, 2026).
+  3. Otherwise the last word: "Martin Luther King Jr." under "king".
+- **`ordering=-rating`:** highest first, unrated last, ties by title. Ratings only exist on finished books (and are kept during a re-read).
+- **Shelf page:** a Rating menu (Any rating, 5★, 4★ and up … 2★ and up, Unrated) next to Sort by, which gains "Author (A–Z)" and "Rating (highest first)". An author filter shows "By <name>" with Clear, which returns focus to the heading. With filters on and nothing matching: "No finished books match these filters" and Clear filters. Everything is in the URL.
+  - The rating options are a list, not an object: JavaScript orders number-like keys ascending, which put 2★ first.
+- **Shelf bar** keeps the sort and both filters when switching shelves on the shelf page, so one author can be followed across shelves.
+- **`filters` is optional in the frontend type.** Testing with `dev:live` before the backend was deployed, the shelf page crashed reading `filters.author`. A missing `filters` now means no author filter (shown as "By this author"); a test covers an older API's response. Rule, now in CLAUDE.md: new response fields are optional on the frontend.
+- **Error boundary** (`components/ErrorBoundary.tsx`): a page that throws while rendering shows "Something went wrong" with Reload, and logs `Shelfwise: a page crashed.` with the error and component stack to the console. One wraps each page inside `AppShell`, so the header and shelf bar stay usable; another wraps all routes (login and not-found included). Both reset when the path changes.
+- **Author page:** "Your books by this author (N)" opens the shelf holding most of them, ties in shelf bar order, filtered to that author. Shown only when at least one is shelved.
 
 ## Dashboard (built Nov 16, 2026)
 

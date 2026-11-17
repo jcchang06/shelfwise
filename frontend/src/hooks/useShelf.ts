@@ -7,19 +7,20 @@ import {
   removeShelfEntry,
   updateShelfEntry,
   type ShelfChanges,
+  type ShelfFilters,
   type ShelfSort,
 } from '../api/shelf';
 import type { ShelfEntry, ShelfStatus } from '../api/types';
 
-export const shelfListKey = (status: ShelfStatus, sort: ShelfSort) =>
-  ['shelf', 'list', status, sort] as const;
+export const shelfListKey = (status: ShelfStatus, sort: ShelfSort, filters: ShelfFilters) =>
+  ['shelf', 'list', status, sort, filters.author, filters.rating] as const;
 export const shelfEntryKey = (bookId: number) => ['shelf', 'book', bookId] as const;
 export const bookKey = (bookId: number) => ['book', bookId] as const;
 
-export function useShelfList(status: ShelfStatus, sort: ShelfSort) {
+export function useShelfList(status: ShelfStatus, sort: ShelfSort, filters: ShelfFilters) {
   return useInfiniteQuery({
-    queryKey: shelfListKey(status, sort),
-    queryFn: ({ pageParam }) => listShelf(status, sort, pageParam),
+    queryKey: shelfListKey(status, sort, filters),
+    queryFn: ({ pageParam }) => listShelf(status, sort, filters, pageParam),
     initialPageParam: 1,
     getNextPageParam: (lastPage, _all, lastPageParam) =>
       lastPage.next ? lastPageParam + 1 : undefined,
