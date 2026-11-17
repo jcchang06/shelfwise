@@ -10,7 +10,8 @@ Status change side effects (old -> new, only when the status actually changes):
                          same read, so its original start is kept)
     any -> finished      finished_at = today (overwrites, so a re-read gets the new date)
     any -> dnf           rating cleared; dnf_at = today; dnf_page = pages logged in the
-                         current read (capped at page_count, null if none); dnf_reason required
+                         current read (capped at page_count, null if none); a blank
+                         dnf_reason is saved as not_specified
     dnf -> any           all DNF fields cleared (logs are kept)
     finished -> reading / want_to_read
                          rating and finished_at kept (a re-read keeps its stars)
@@ -125,7 +126,7 @@ def apply_shelf_changes(
     final = {field: result.get(field, getattr(user_book, field)) for field in EDITABLE_FIELDS}
 
     if new == Status.DNF and not final["dnf_reason"]:
-        errors["dnf_reason"] = "Choose why you stopped reading."
+        final["dnf_reason"] = UserBook.DnfReason.NOT_SPECIFIED  # the reason is optional (T-6)
 
     page_count = user_book.book.page_count
     if "dnf_page" in changes and changes["dnf_page"] is not None and page_count:

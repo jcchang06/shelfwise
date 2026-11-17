@@ -32,8 +32,8 @@ export function ImportSummary({ goodreadsImport }: { goodreadsImport: GoodreadsI
       {g.placeholder_dnf_count > 0 ? (
         <p className="notice">
           {fmt(g.placeholder_dnf_count)} imported{' '}
-          {g.placeholder_dnf_count === 1 ? 'DNF still has' : 'DNFs still have'} the placeholder
-          reason “Imported from Goodreads”. Real reasons make your recommendations better.{' '}
+          {g.placeholder_dnf_count === 1 ? 'DNF has' : 'DNFs have'} no reason yet, since Goodreads
+          doesn&apos;t record one. Reasons make your recommendations better.{' '}
           <Link to="/shelf?status=dnf">Set reasons on your DNF shelf</Link>
         </p>
       ) : null}

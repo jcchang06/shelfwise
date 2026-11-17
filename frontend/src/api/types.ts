@@ -10,7 +10,13 @@ export const SHELF_STATUS_LABELS: Record<ShelfStatus, string> = {
 };
 
 export type DnfReason =
-  'writing_style' | 'pacing' | 'content' | 'not_my_genre' | 'not_in_the_mood' | 'other';
+  | 'writing_style'
+  | 'pacing'
+  | 'content'
+  | 'not_my_genre'
+  | 'not_in_the_mood'
+  | 'other'
+  | 'not_specified'; // saved when the reason is left blank
 
 export const DNF_REASON_LABELS: Record<DnfReason, string> = {
   writing_style: 'Writing style',
@@ -19,6 +25,7 @@ export const DNF_REASON_LABELS: Record<DnfReason, string> = {
   not_my_genre: 'Not my genre',
   not_in_the_mood: 'Not in the mood',
   other: 'Other',
+  not_specified: 'Not specified',
 };
 
 export type BookSource = 'google_books' | 'open_library';

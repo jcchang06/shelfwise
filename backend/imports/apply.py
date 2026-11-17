@@ -10,9 +10,9 @@ Three cases, decided by GoodreadsLink (user + Goodreads Book Id):
 
 Shelf rules still apply (tracking.services.apply_shelf_changes): Goodreads values are
 passed explicitly, so no "today" defaults sneak in. An unknown Goodreads date stays
-unknown (the stats' "Date unknown" row). Imported DNFs get the reason "other" and the note
-"Imported from Goodreads", since the database requires a reason; the import summary
-counts how many still have it.
+unknown (the stats' "Date unknown" row). Goodreads has no DNF reason, so imported DNFs get
+"not_specified" (no recommendation penalty); the import summary counts imported DNFs that
+still have it.
 """
 
 import datetime as dt
@@ -29,17 +29,20 @@ from .models import GoodreadsLink, ImportRow
 
 Status = UserBook.Status
 State = ImportRow.State
-DNF_PLACEHOLDER_NOTE = "Imported from Goodreads"
 
 
 def placeholder_dnf_count(user) -> int:
-    """Imported DNFs whose reason is still the placeholder (shown on the import summary)."""
-    return UserBook.objects.filter(
-        user=user,
-        status=Status.DNF,
-        dnf_reason=UserBook.DnfReason.OTHER,
-        dnf_note=DNF_PLACEHOLDER_NOTE,
-    ).count()
+    """Imported DNFs still without a reason (shown on the import summary)."""
+    return (
+        UserBook.objects.filter(
+            user=user,
+            status=Status.DNF,
+            dnf_reason=UserBook.DnfReason.NOT_SPECIFIED,
+            goodreads_links__isnull=False,
+        )
+        .distinct()
+        .count()
+    )
 
 
 def goodreads_changes(row: ImportRow) -> dict[str, Any]:
@@ -49,8 +52,8 @@ def goodreads_changes(row: ImportRow) -> dict[str, Any]:
         changes.update(finished_at=row.date_read, rating=row.rating)
     elif row.status == Status.DNF:
         changes.update(
-            dnf_reason=UserBook.DnfReason.OTHER,
-            dnf_note=DNF_PLACEHOLDER_NOTE,
+            dnf_reason=UserBook.DnfReason.NOT_SPECIFIED,
+            dnf_note="",
             dnf_at=row.date_read,
             dnf_page=None,
         )

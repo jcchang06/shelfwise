@@ -49,6 +49,12 @@ class TestUserBook:
     def test_dnf_reasons_match_settings_weights(self, settings):
         # The recommender (R-5) looks weights up by reason, so every reason needs one.
         assert set(UserBook.DnfReason.values) == set(settings.DNF_REASON_WEIGHTS)
+        # A blank reason (saved as not_specified) must never penalize similar books.
+        assert settings.DNF_REASON_WEIGHTS[UserBook.DnfReason.NOT_SPECIFIED] == 0
+
+    def test_unknown_reason_rejected_by_the_database(self):
+        with pytest.raises(IntegrityError):
+            UserBookFactory(dnf=True, dnf_reason="boring")
 
     def test_dnf_can_move_back_to_reading(self):
         ub = UserBookFactory(dnf=True)

@@ -6,7 +6,7 @@ import pytest
 from django.utils import timezone
 
 from catalog.tests.factories import BookFactory
-from imports.apply import DNF_PLACEHOLDER_NOTE, apply_match, placeholder_dnf_count
+from imports.apply import apply_match, placeholder_dnf_count
 from imports.models import GoodreadsLink, ImportRow
 from tracking.models import UserBook
 from tracking.tests.factories import UserBookFactory
@@ -62,14 +62,14 @@ class TestCreate:
         apply(row, BookFactory())
         assert UserBook.objects.get().started_at is None
 
-    def test_dnf_gets_the_placeholder_reason(self):
+    def test_dnf_gets_reason_not_specified(self):
         row = make_row(make_import(), status=S.DNF, date_read=dt.date(2023, 11, 20))
         apply(row, BookFactory())
         entry = UserBook.objects.get()
         assert (entry.status, entry.dnf_reason, entry.dnf_note, entry.dnf_at, entry.dnf_page) == (
             S.DNF,
-            UserBook.DnfReason.OTHER,
-            DNF_PLACEHOLDER_NOTE,
+            UserBook.DnfReason.NOT_SPECIFIED,
+            "",
             dt.date(2023, 11, 20),
             None,
         )
@@ -80,6 +80,10 @@ class TestCreate:
         apply(row, BookFactory())
         UserBook.objects.update(dnf_reason=UserBook.DnfReason.PACING)
         assert placeholder_dnf_count(row.goodreads_import.user) == 0
+
+    def test_placeholder_count_ignores_dnfs_added_by_hand(self):
+        entry = UserBookFactory(status=S.DNF, dnf_reason=UserBook.DnfReason.NOT_SPECIFIED)
+        assert placeholder_dnf_count(entry.user) == 0
 
     def test_fills_the_books_series_if_empty(self):
         book = BookFactory(series_name="")

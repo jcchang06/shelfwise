@@ -269,9 +269,15 @@ class TestUpdate:
 
     def test_rule_errors_are_400_by_field(self, client, user):
         ub = UserBookFactory(user=user, status=S.READING)
-        response = client.patch(detail(ub), {"status": "dnf"}, format="json")
+        response = client.patch(detail(ub), {"rating": 4}, format="json")
         assert response.status_code == 400
-        assert response.json() == {"dnf_reason": ["Choose why you stopped reading."]}
+        assert response.json() == {"rating": ["You can rate a book only when it's finished."]}
+
+    def test_dnf_without_a_reason_is_not_specified(self, client, user):
+        ub = UserBookFactory(user=user, status=S.READING)
+        response = client.patch(detail(ub), {"status": "dnf"}, format="json")
+        assert response.status_code == 200
+        assert response.json()["dnf_reason"] == "not_specified"
 
     @pytest.mark.parametrize(
         "payload",
