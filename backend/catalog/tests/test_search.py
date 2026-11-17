@@ -61,3 +61,12 @@ def test_both_failing_raises_unavailable(mocked):
     mocked.get(OL_SEARCH_RE, status=500)
     with pytest.raises(BookSearchUnavailableError):
         search_books("dune")
+
+
+def test_rate_limited_google_falls_back_without_a_daily_flag(mocked):
+    mocked.get(
+        GOOGLE_SEARCH_RE, status=429, json={"error": {"errors": [{"reason": "rateLimitExceeded"}]}}
+    )
+    mocked.get(OL_SEARCH_RE, json=load_fixture("ol_search"))
+    assert search_books("dune").source == Source.OPEN_LIBRARY
+    assert not google_books.quota_exhausted()

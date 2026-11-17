@@ -197,11 +197,26 @@ class TestGoogleTitleAuthor:
             match_row(row(), {})
         assert len(mocked.calls) == 0
 
-    def test_google_quota_hit_pauses(self, mocked):
-        mocked.get(GOOGLE_SEARCH, status=429, json={})
+    def test_google_daily_quota_pauses(self, mocked):
+        mocked.get(
+            GOOGLE_SEARCH,
+            status=429,
+            json={"error": {"errors": [{"reason": "dailyLimitExceeded"}]}},
+        )
         with pytest.raises(MatchPausedError, match="quota"):
             match_row(row(), {})
         assert cache.get(google_books.QUOTA_FLAG_KEY) is True
+
+    def test_google_rate_limit_is_retry_later_not_unmatched(self, mocked):
+        """Regression: a per-minute 429 used to pause imports until the next day."""
+        from imports.matching import MatchRetryLaterError
+
+        mocked.get(
+            GOOGLE_SEARCH, status=429, json={"error": {"errors": [{"reason": "rateLimitExceeded"}]}}
+        )
+        with pytest.raises(MatchRetryLaterError):
+            match_row(row(), {})
+        assert not google_books.quota_exhausted()
 
     def test_google_down_is_unmatched_not_paused(self, mocked):
         mocked.get(GOOGLE_SEARCH, status=500)
@@ -214,3 +229,68 @@ class TestGoogleTitleAuthor:
         second = match_row(row(row_number=2, goodreads_book_id="2"), {})
         assert second.book == first.book and second.method == M.CATALOG_TITLE
         assert len(mocked.calls) == 1
+
+
+class TestFallbacks:
+    """Tuning from the real-export match report (PR 6)."""
+
+    def test_author_note_in_parentheses_is_ignored(self, mocked):
+        mocked.get(GOOGLE_SEARCH, json={"items": [google_item(authors=("Andy Weir (Novelist)",))]})
+        assert match_row(row(), {}).method == M.TITLE_AUTHOR
+
+    def test_isbn_open_library_lacks_is_looked_up_on_google(self, mocked):
+        mocked.get(
+            google_books.API_ROOT + "/volumes",
+            json={"items": [google_item(title="Project Hail Mary: A Novel")]},
+            match=[matchers.query_param_matcher({"q": "isbn:9780593135204"}, strict_match=False)],
+        )
+        match = match_row(row(isbn_13="9780593135204"), {})  # not in the OL prefetch
+        assert match.method == M.ISBN and match.book.google_books_id == "vol1"
+        assert google_calls_used() == 1
+
+    def test_google_isbn_hit_with_another_title_is_not_used(self, mocked):
+        mocked.get(
+            google_books.API_ROOT + "/volumes",
+            json={"items": [google_item(title="Completely Different")]},
+            match=[matchers.query_param_matcher({"q": "isbn:9780593135204"}, strict_match=False)],
+        )
+        mocked.get(
+            google_books.API_ROOT + "/volumes",
+            json={"totalItems": 0},
+            match=[
+                matchers.query_param_matcher(
+                    {"q": 'intitle:"Project Hail Mary" inauthor:"Andy Weir"'}, strict_match=False
+                )
+            ],
+        )
+        mocked.get(OL_SEARCH, json={"docs": []})
+        match = match_row(row(isbn_13="9780593135204"), {})
+        assert match.book is None and "wasn't found" in match.note
+
+    def test_open_library_title_search_rescues_a_google_miss(self, mocked):
+        mocked.get(
+            GOOGLE_SEARCH, json={"items": [google_item("v1", "Project Hail Mary Study Guide")]}
+        )
+        mocked.get(
+            OL_SEARCH,
+            json={"docs": [ol_doc(isbns=[])]},
+            match=[
+                matchers.query_param_matcher(
+                    open_library.title_author_params("Project Hail Mary", "Andy Weir")
+                )
+            ],
+        )
+        match = match_row(row(), {})
+        assert match.method == M.TITLE_AUTHOR and match.book.open_library_key == "OL1W"
+        assert google_calls_used() == 1  # the fallback costs no Google budget
+
+    def test_open_library_fallback_is_strict_too(self, mocked):
+        mocked.get(GOOGLE_SEARCH, json={"totalItems": 0})
+        mocked.get(OL_SEARCH, json={"docs": [ol_doc(title="Project Hail Mary Summary")]})
+        match = match_row(row(), {})
+        assert match.book is None and "No book with this title and author found." in match.note
+
+    def test_open_library_fallback_failure_is_not_fatal(self, mocked):
+        mocked.get(GOOGLE_SEARCH, json={"totalItems": 0})
+        mocked.get(OL_SEARCH, status=503)
+        assert match_row(row(), {}).book is None

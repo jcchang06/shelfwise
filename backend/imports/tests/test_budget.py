@@ -41,3 +41,24 @@ def test_respects_googles_own_quota_flag():
     with pytest.raises(BudgetExhaustedError, match="quota"):
         spend_google_call()
     assert google_calls_used() == 0  # nothing counted
+
+
+def test_import_calls_are_spaced_out(settings, monkeypatch):
+    from imports import budget
+
+    settings.IMPORT_GOOGLE_REQUESTS_PER_SECOND = 2
+    clock = {"now": 50.0}
+    sleeps: list[float] = []
+    monkeypatch.setattr(budget.time, "monotonic", lambda: clock["now"])
+
+    def fake_sleep(seconds):
+        sleeps.append(seconds)
+        clock["now"] += seconds
+
+    monkeypatch.setattr(budget.time, "sleep", fake_sleep)
+    monkeypatch.setattr(budget, "_last_call_at", 0.0)
+    now = dt.datetime(2026, 11, 16, 16, 0, tzinfo=UTC)
+    spend_google_call(now)
+    clock["now"] += 0.1
+    spend_google_call(now)  # 0.1s later at 2/s: waits the remaining 0.4s
+    assert sleeps == [pytest.approx(0.4)]

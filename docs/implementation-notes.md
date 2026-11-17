@@ -319,6 +319,25 @@ Matching tries the cheapest source first:
 - **Books that need a match:** each one shows its Goodreads details and the reason. **Find a match** opens a search pre-filled with `search_query`, with Google attribution, a "View on …" link per result and **Use this book**, which resolves with `{book_id}` or `{source, source_id}`. **Dismiss** skips the row. Failed rows are listed with their reasons in a `<details>`.
 - **Uploads** go through `apiPostForm`, and the client no longer sets `Content-Type` for `FormData`, so the browser adds the multipart boundary itself.
 
+### Measuring against the real export (PR 6)
+
+`manage.py goodreads_match_report <csv>` runs the real matching pipeline over an export **without touching any shelf** and prints the match rate against the **90% gate**, with counts by method and unmatched reasons by category.
+- **It prints aggregates only by default.** `--show-unmatched` lists titles, for local tuning only; never paste them anywhere.
+- **Matched books are saved to the catalog,** so a later real import of the same file is mostly catalog hits.
+
+Running it on your real export (433 rows) turned up four problems, now fixed:
+1. **Ratings were silently dropped.** Real exports write `My Rating` as `"5.0"`, and `Number of Pages` as `"320.0"`. `parse_int` now accepts a trailing `.0`, and still rejects `4.5`, negative numbers and text. 65 ratings and 421 page counts came back. The synthetic fixture now uses the decimal form, and there are regression tests.
+2. **Every 429 from Google was treated as "daily quota used up"** and blocked Google until midnight Pacific. Google returns 429 for its **per-minute** limit too. That happened after about 130 quick calls, and the same request worked a moment later. `_limit_kind` reads the error body:
+   - **Only an explicit daily limit** (`dailyLimitExceeded`, or a message mentioning "per day") sets the all-day flag.
+   - **Any other 429 is a `RateLimitedError`.** Search falls back to Open Library for that request only.
+   - **In imports,** a rate limit raises `MatchRetryLaterError`: the batch ends early, the row stays pending, and the import stays `running`, so the next batch carries on.
+   - **Import calls to Google** are now spaced to `IMPORT_GOOGLE_REQUESTS_PER_SECOND` (default 1).
+3. **The Open Library User-Agent was fixed when the session was created.** The cached HTTP session kept the User-Agent it started with, so later changes to the setting were ignored. It only showed up in tests when they ran in a particular order. It's now sent with each request.
+4. **Matching tuning:**
+   - **A trailing note after an author's name is ignored** when comparing a result to a row, for example "RuNyx (Novelist)". This uses a separate `_author_key`, so the shared `normalize_author_name` still matches its database twin.
+   - **Google by ISBN:** when Open Library doesn't know an ISBN, matching makes **one budgeted Google lookup by ISBN**, accepted if the titles are compatible.
+   - **Open Library by title and author:** when Google has no exact title-and-author match, matching tries **Open Library's title and author search**, which is throttled, uses no Google budget, and has the same exact-match rule.
+
 ## Phase 5 backlog
 
 Everything deferred so far, in one place, to pick up in Phase 5 (polish) or sooner if it becomes urgent. Each item links back to where it was decided.

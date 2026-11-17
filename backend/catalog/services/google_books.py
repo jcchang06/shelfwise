@@ -23,6 +23,7 @@ from .types import (
     BookResult,
     BookSourceError,
     QuotaExceededError,
+    RateLimitedError,
     Source,
 )
 
@@ -85,17 +86,29 @@ def quota_exhausted() -> bool:
     return bool(cache.get(QUOTA_FLAG_KEY))
 
 
-def _is_quota_error(response: requests.Response) -> bool:
-    if response.status_code == 429:
-        return True
-    # Google's older quota errors come back as 403 with a *LimitExceeded reason.
-    if response.status_code == 403:
-        try:
-            errors = response.json().get("error", {}).get("errors", [])
-        except ValueError:
-            return False
-        return any("limitexceeded" in str(e.get("reason", "")).lower() for e in errors)
-    return False
+def _limit_kind(response: requests.Response) -> str | None:
+    """ "daily", "rate" (short-term) or None, from a 429/403 response.
+
+    Google answers 429 for both its per-minute and its daily limits; only the error body
+    says which. Treating every 429 as daily (as this used to) blocked Google for the rest
+    of the day after one burst. Only an explicit daily limit sets the all-day flag; any
+    other 429 is a short-term rate limit.
+    """
+    if response.status_code not in (403, 429):
+        return None
+    try:
+        error = response.json().get("error", {}) or {}
+    except ValueError:
+        error = {}
+    reasons = " ".join(str(e.get("reason", "")) for e in error.get("errors", []) or []).lower()
+    message = str(error.get("message", "")).lower()
+    if "dailylimitexceeded" in reasons or "per day" in message:
+        return "daily"
+    if response.status_code == 429 or "ratelimitexceeded" in reasons:
+        return "rate"
+    if "limitexceeded" in reasons or "quotaexceeded" in reasons:  # older 403 quota forms
+        return "daily"
+    return None
 
 
 def _get(url: str, params: dict[str, Any]) -> Any:
@@ -103,11 +116,15 @@ def _get(url: str, params: dict[str, Any]) -> Any:
         raise QuotaExceededError("Google Books quota exhausted until midnight Pacific")
 
     response = get_response(_session(), url, params)
-    if _is_quota_error(response):
+    kind = _limit_kind(response)
+    if kind == "daily":
         timeout = seconds_until_quota_reset(dt.datetime.now(tz=dt.UTC))
         cache.set(QUOTA_FLAG_KEY, True, timeout=timeout)
-        logger.warning("Google Books quota exhausted; skipping it for %ss", timeout)
+        logger.warning("Google Books daily quota exhausted; skipping it for %ss", timeout)
         raise QuotaExceededError("Google Books quota exhausted")
+    if kind == "rate":
+        logger.info("Google Books rate limit hit (short-term)")
+        raise RateLimitedError("Google Books is rate limiting requests; try again shortly.")
     if response.status_code == 404:
         raise BookNotFoundError(url.rsplit("/", 1)[-1])
     if not response.ok:

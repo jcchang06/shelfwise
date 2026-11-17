@@ -231,3 +231,20 @@ def search_by_isbns(isbns: list[str]) -> dict[str, list[BookResult]]:
                 if isbn in doc_isbns:
                     found.setdefault(isbn, []).append(replace(result, isbn_13=isbn))
     return found
+
+
+def title_author_params(title: str, author: str) -> dict[str, Any]:
+    return {"title": title, "author": author, "fields": SEARCH_FIELDS, "limit": 10}
+
+
+def search_title_author(title: str, author: str) -> list[BookResult]:
+    """Search by title and author fields (one throttled search.json request, cached)."""
+    key = hashlib.sha256(f"{title.lower()}|{author.lower()}".encode()).hexdigest()[:32]
+    cache_key = f"open_library:title_author:{key}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    docs = _get(f"{API_ROOT}/search.json", title_author_params(title, author)).get("docs") or ()
+    results = [r for doc in docs if (r := parse_search_doc(doc))]
+    cache.set(cache_key, results, timeout=SEARCH_CACHE_SECONDS)
+    return results

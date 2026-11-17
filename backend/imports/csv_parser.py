@@ -106,8 +106,14 @@ def parse_date(value: str) -> dt.date | None:
 
 
 def parse_int(value: str) -> int | None:
+    """A whole, non-negative number. Goodreads exports some as "5.0" or "320.0", so a
+    trailing ".0" is fine; "4.5", "-1" and text are not."""
     value = (value or "").strip()
-    return int(value) if value.isdigit() else None
+    try:
+        number = float(value)
+    except ValueError:
+        return None
+    return int(number) if number.is_integer() and number >= 0 else None
 
 
 def map_status(exclusive_shelf: str, bookshelves: str) -> tuple[str, str | None]:

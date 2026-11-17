@@ -12,6 +12,7 @@ from catalog.services.types import (
     BookNotFoundError,
     BookSourceError,
     QuotaExceededError,
+    RateLimitedError,
     Source,
 )
 
@@ -141,16 +142,37 @@ class TestQuota:
     @pytest.mark.parametrize(
         ("status", "body"),
         [
-            (429, {"error": {"code": 429}}),
+            (429, {"error": {"code": 429, "errors": [{"reason": "dailyLimitExceeded"}]}}),
+            (429, {"error": {"code": 429, "message": "Quota exceeded for 'Queries per day'"}}),
             (403, {"error": {"errors": [{"reason": "dailyLimitExceeded"}]}}),
         ],
-        ids=["429", "403-dailyLimitExceeded"],
+        ids=["429-daily-reason", "429-per-day-message", "403-dailyLimitExceeded"],
     )
-    def test_quota_error_sets_shared_flag(self, mocked, status, body):
+    def test_daily_quota_error_sets_shared_flag(self, mocked, status, body):
         mocked.get(GOOGLE_SEARCH_RE, status=status, json=body)
         with pytest.raises(QuotaExceededError):
             google_books.search("dune")
         assert cache.get(google_books.QUOTA_FLAG_KEY) is True
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            {"error": {"code": 429, "errors": [{"reason": "rateLimitExceeded"}]}},
+            {"error": {"code": 429, "message": "Quota exceeded for 'Queries per minute'"}},
+            {"error": {"code": 429}},
+            None,
+        ],
+        ids=["rateLimitExceeded", "per-minute-message", "no-reason", "no-body"],
+    )
+    def test_short_term_429_is_rate_limited_not_a_daily_flag(self, mocked, body):
+        """Regression: any 429 used to block Google until midnight Pacific."""
+        if body is None:
+            mocked.get(GOOGLE_SEARCH_RE, status=429)
+        else:
+            mocked.get(GOOGLE_SEARCH_RE, status=429, json=body)
+        with pytest.raises(RateLimitedError):
+            google_books.search("dune")
+        assert not google_books.quota_exhausted()
 
     def test_other_403_is_not_quota(self, mocked):
         body = {"error": {"errors": [{"reason": "forbidden"}]}}
