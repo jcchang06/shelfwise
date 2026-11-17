@@ -20,4 +20,5 @@ urlpatterns = [
     path("api/books/", include("catalog.urls")),
     path("api/shelf/", include("tracking.urls")),
     path("api/logs/", include("tracking.log_urls")),
+    path("api/stats/", include("tracking.stats_urls")),
 ]
