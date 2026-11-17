@@ -56,7 +56,8 @@ Decisions made while building, which aren't in the PRD. These are the source of 
 - **Endpoints**, all requiring login:
   - **`GET /api/books/search/?q=&page=`**
     - `q` must be 2 to 200 characters after trimming, and `page` must be 1 to 10.
-    - The response is `{source, page, next_page, results[]}`. Each result carries `book_id` when it's already in the catalog.
+    - The response is `{source, page, next_page, results[]}`. Each result carries `book_id` when it's already in the catalog, and `shelf: {id, status}` when it's on the caller's shelf (otherwise null).
+    - **`book_id` and `shelf` are never cached.** The source results come from the shared 24h cache, while these two depend on the current catalog and on the user, so they're computed per request after the cache read, in one extra query for `shelf`. A test searches, adds the book, then searches again: the second search is served from the cache and still shows the new `book_id` and `shelf`.
     - `next_page` is null unless the page was full. The endpoint uses a page number rather than DRF pagination, because results don't come from a database queryset.
     - Rate limited per user by `BOOK_SEARCH_THROTTLE_RATE` (30 per minute).
     - Returns 503 if both sources are down.
@@ -212,8 +213,26 @@ Response: `{year, totals: {pages, finished, dnf, average_rating}, pages_per_mont
 
 ## Phase 5 backlog
 
-Deferred work to pick up in Phase 5 (polish), or sooner if it becomes urgent.
+Everything deferred so far, in one place, to pick up in Phase 5 (polish) or sooner if it becomes urgent. Each item links back to where it was decided.
+
+### Security
+
+- **Token blacklist and server-side logout** (T-1). Add simplejwt's `token_blacklist` app, which is a migration, with `BLACKLIST_AFTER_ROTATION = True`, plus `POST /api/auth/logout/`. Today an old refresh token stays valid until it expires (7 days). Do this before any public beta.
+- **Raise HSTS** (Deploy). `DJANGO_HSTS_SECONDS` defaults to 1 day. Raise it (for example to 1 year) once production has been stable for a while. Keep subdomains and preload off while on `onrender.com`.
+- **Refresh token in an httpOnly cookie** (Frontend foundation). This isn't possible while the frontend and API are on different `onrender.com` subdomains, because `onrender.com` is a public suffix, so the cookie would be third-party and blocked. It becomes possible with a **custom domain** serving both, for example `app.` and `api.` under one domain. A domain is also what the PRD needs for emailing anyone other than me.
+
+### Data and features
+
+- **History of each read** (T-2, T-5). v1 keeps one set of dates per book, so a re-read overwrites `started_at` and `finished_at`, and a book finished twice counts once, in its latest year. A `reads` table would give accurate re-read stats.
+- **Indexed `name_normalized` on `Author`** (C-1 / C-2). Author name matching scans the table with a Postgres expression. Add the indexed column, which is a migration, if the C-3 catalog seed makes saves slow.
+- **Sign-up page** (Frontend foundation). Production has sign-up turned off (`ALLOW_SIGNUP=false`) and v1 has one user. Add the page only if a public beta happens.
+
+### Tooling
 
 - **Upgrade to Vitest 4.** `npm audit` still reports one moderate advisory in `@vitest/mocker` 3.x ([GHSA-82fw-gwwq-j7x9](https://github.com/advisories/GHSA-82fw-gwwq-j7x9), [GHSA-qxg6-89mg-rqv8](https://github.com/advisories/GHSA-qxg6-89mg-rqv8)), fixed only in Vitest 4.1.12+. It's dev tooling, not in the production bundle, and our plain `vitest run` with jsdom doesn't use the affected mocker plugin, so it isn't urgent. When upgrading:
   - check that `@testing-library/jest-dom` and the MSW setup still work
   - remove the `tinypool` override in `frontend/package.json` if Vitest 4 no longer needs it
+
+### Planned for another phase, not Phase 5
+
+- **Merging the same book saved from both sources** (C-1 / C-2). ISBN matching misses editions with different ISBNs. Matching by normalized title plus first author is planned for the **Phase 2** Goodreads import, along with merging any existing duplicates.
