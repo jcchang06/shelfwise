@@ -23,6 +23,7 @@ def _locmem_cache(settings):
         }
     }
     settings.OPEN_LIBRARY_REQUESTS_PER_SECOND = 0  # no sleeping in tests
+    settings.IMPORT_GOOGLE_REQUESTS_PER_SECOND = 0
     cache.clear()
     yield
     cache.clear()

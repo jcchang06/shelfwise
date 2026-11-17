@@ -22,7 +22,7 @@ from django.db.models import Count
 from django.utils import timezone
 
 from .apply import apply_match
-from .matching import MatchPausedError, match_row, prefetch_isbns
+from .matching import MatchPausedError, MatchRetryLaterError, match_row, prefetch_isbns
 from .models import GoodreadsImport, ImportRow
 
 logger = logging.getLogger(__name__)
@@ -122,6 +122,11 @@ def _process(import_id: int, max_seconds: float, clock: Callable[[], float]) -> 
         except MatchPausedError as exc:
             goodreads_import.status = Status.PAUSED
             goodreads_import.error = str(exc)
+            break
+        except MatchRetryLaterError:
+            # Short-term rate limit: stop this batch; the row stays pending and the import
+            # stays running, so the next batch (seconds later) carries on.
+            logger.info("Import %s: Google rate limit, ending batch early", import_id)
             break
         except Exception:  # one bad row must never stop an import
             logger.exception("Import %s row %s failed", import_id, row.row_number)

@@ -220,6 +220,9 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = IMPORT_MAX_FILE_BYTES
 # Google Books calls imports may use per day (Pacific), leaving the rest of the 1,000/day
 # quota for search. When it runs out, an import pauses until the next day.
 IMPORT_GOOGLE_DAILY_BUDGET = env.int("IMPORT_GOOGLE_DAILY_BUDGET", default=600)
+# Imports also space out their Google calls: Google has a per-minute limit (it answered
+# 429 after ~130 quick calls while measuring a real export). 0 disables it (tests).
+IMPORT_GOOGLE_REQUESTS_PER_SECOND = env.float("IMPORT_GOOGLE_REQUESTS_PER_SECOND", default=1.0)
 # Seconds one processing batch may run. Well inside gunicorn's 60s timeout, since the
 # import page runs batches through a normal web request.
 IMPORT_BATCH_SECONDS = env.float("IMPORT_BATCH_SECONDS", default=20.0)

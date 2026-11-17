@@ -151,3 +151,20 @@ def test_isbn_prefetch_happens_once_per_batch(catalog_books, monkeypatch):
     monkeypatch.setattr(processing, "prefetch_isbns", lambda rows: calls.append(len(rows)) or {})
     process_import_batch(imp.pk, max_seconds=60)
     assert calls == [3]
+
+
+def test_rate_limit_ends_the_batch_without_pausing(catalog_books, monkeypatch):
+    from imports.matching import MatchRetryLaterError
+
+    imp = make_import()
+    make_row(imp, 1)
+    make_row(imp, 2)
+
+    def rate_limited(row, prefetched):
+        raise MatchRetryLaterError("slow down")
+
+    monkeypatch.setattr(processing, "match_row", rate_limited)
+    result = process_import_batch(imp.pk, max_seconds=60)
+
+    assert result.status == Status.RUNNING and result.error == ""  # not paused
+    assert result.rows.filter(state=State.PENDING).count() == 2

@@ -6,6 +6,8 @@ shared (database) cache so every process and the nightly job see the same number
 """
 
 import datetime as dt
+import threading
+import time
 
 from django.conf import settings
 from django.core.cache import cache
@@ -26,6 +28,24 @@ def google_calls_used(now: dt.datetime | None = None) -> int:
     return int(cache.get(_key(now)) or 0)
 
 
+_last_call_at = 0.0
+_throttle_lock = threading.Lock()
+
+
+def _throttle() -> None:
+    """At most IMPORT_GOOGLE_REQUESTS_PER_SECOND import calls to Google (process-wide), so
+    a big import stays under Google's per-minute limit. Searches by people aren't slowed."""
+    global _last_call_at
+    rate = settings.IMPORT_GOOGLE_REQUESTS_PER_SECOND
+    if rate <= 0:
+        return
+    with _throttle_lock:
+        wait = _last_call_at + 1 / rate - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _last_call_at = time.monotonic()
+
+
 def spend_google_call(now: dt.datetime | None = None) -> None:
     """Count one Google call against today's budget, or raise if none are left.
 
@@ -42,3 +62,4 @@ def spend_google_call(now: dt.datetime | None = None) -> None:
             f"The import's Google budget ({settings.IMPORT_GOOGLE_DAILY_BUDGET} a day) is used "
             "up until midnight Pacific."
         )
+    _throttle()
