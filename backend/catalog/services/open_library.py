@@ -336,3 +336,72 @@ def search_authors(name: str) -> list[AuthorCandidate]:
     ]
     cache.set(cache_key, found, timeout=AUTHOR_CACHE_SECONDS)
     return found
+
+
+# --- Work details in batches (C-3 catalog seed) -----------------------------------------
+
+WORK_BATCH_SIZE = 100
+WORK_DETAIL_FIELDS = "key,first_publish_year,number_of_pages_median,isbn,language"
+
+
+def work_details_params(work_keys: list[str]) -> dict[str, Any]:
+    keys = " OR ".join(f"/works/{key}" for key in work_keys)
+    return {"q": f"key:({keys})", "fields": WORK_DETAIL_FIELDS, "limit": len(work_keys)}
+
+
+def work_details(work_keys: list[str]) -> dict[str, dict[str, Any]]:
+    """{work key: {first_publish_year, page_count, isbn_13, languages}} for up to
+    WORK_BATCH_SIZE works in one throttled search request (what the 12.6 GB editions
+    dump would otherwise provide). Works Open Library doesn't return are absent."""
+    if len(work_keys) > WORK_BATCH_SIZE:
+        raise ValueError(f"At most {WORK_BATCH_SIZE} work keys per request")
+    docs = _get(f"{API_ROOT}/search.json", work_details_params(work_keys)).get("docs") or ()
+    found: dict[str, dict[str, Any]] = {}
+    for doc in docs:
+        key = _work_key(doc.get("key"))
+        if not key:
+            continue
+        found[key] = {
+            "first_publish_year": doc.get("first_publish_year") or None,
+            "page_count": doc.get("number_of_pages_median") or None,
+            "isbn_13": normalize.first_isbn_13(doc.get("isbn"), settings.BOOK_SEARCH_LANGUAGE),
+            "languages": tuple(doc.get("language") or ()),
+        }
+    return found
+
+
+def marc_language(language: str) -> str | None:
+    """ "en" -> "eng": Open Library tags editions with MARC language codes."""
+    return _MARC_LANGUAGE.get(language)
+
+
+RECENT_PAGE_SIZE = 1000  # Open Library's maximum `limit`
+
+
+def popular_recent_work_keys(from_year: int, to_year: int, count: int) -> dict[str, int]:
+    """{work key: readers} for the `count` most-read works first published in
+    from_year..to_year with an edition in BOOK_SEARCH_LANGUAGE, most read first. The
+    dumps' reading log is too thin on new books for a top-N cut to find enough of them.
+    One throttled request per RECENT_PAGE_SIZE works."""
+    language = marc_language(settings.BOOK_SEARCH_LANGUAGE)
+    query = f"first_publish_year:[{from_year} TO {to_year}]"
+    if language:
+        query += f" language:{language}"
+    found: dict[str, int] = {}
+    page = 1
+    while len(found) < count:
+        params = {
+            "q": query,
+            "sort": "readinglog",
+            "fields": "key,readinglog_count",
+            "limit": min(RECENT_PAGE_SIZE, count - len(found)),
+            "page": page,
+        }
+        docs = _get(f"{API_ROOT}/search.json", params).get("docs") or ()
+        for doc in docs:
+            if key := _work_key(doc.get("key")):
+                found.setdefault(key, doc.get("readinglog_count") or 0)
+        if len(docs) < params["limit"]:
+            break
+        page += 1
+    return found
