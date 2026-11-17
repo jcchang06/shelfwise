@@ -225,6 +225,7 @@ Everything deferred so far, in one place, to pick up in Phase 5 (polish) or soon
 
 - **History of each read** (T-2, T-5). v1 keeps one set of dates per book, so a re-read overwrites `started_at` and `finished_at`, and a book finished twice counts once, in its latest year. A `reads` table would give accurate re-read stats.
 - **Indexed `name_normalized` on `Author`** (C-1 / C-2). Author name matching scans the table with a Postgres expression. Add the indexed column, which is a migration, if the C-3 catalog seed makes saves slow.
+- **Reading streak** (Dashboard). Consecutive days with at least one reading log, for the goal-setter persona. It's not part of T-5, so the Phase 1 dashboard shows totals only. It can be worked out from `ReadingLog.log_date` in `TIME_ZONE`, added to `/api/stats/`, and shown as a stat tile.
 - **Sign-up page** (Frontend foundation). Production has sign-up turned off (`ALLOW_SIGNUP=false`) and v1 has one user. Add the page only if a public beta happens.
 
 ### Tooling
