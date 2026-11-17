@@ -90,11 +90,15 @@ P0 is the MVP (tracker and catalog). P1 completes the three-feature loop. P2 is 
 | T-3 | Tracker | Log pages read per day per book; edit or delete a log | P0 |
 | T-4 | Tracker | Rate 1 to 5 stars and write an optional review | P0 |
 | T-5 | Tracker | Dashboard: pages per month, books per year, genre mix, rating distribution; DNF books count separately, not as finished | P0 |
-| T-6 | Tracker | Marking a book DNF records the page I stopped at, the date, a reason (writing style, pacing, content, not my genre, not in the mood, other) and an optional note; a DNF book can be resumed later | P0 |
+| T-6 | Tracker | Marking a book DNF records the page I stopped at, the date, an optional reason (writing style, pacing, content, not my genre, not in the mood, other; left blank it is saved as not specified) and an optional note; a DNF book can be resumed later | P0 |
+| T-7 | Tracker | Every shelf and log form (add from search, the book page's status form, DNF, logging) labels each field "(required)" or "(optional)", or pre-fills it with its default; on Save with a required field empty, the error shows next to it and focus moves there; Save is never disabled | P1 |
+| T-8 | Tracker | Dates (finished on, started on when moving to Reading, DNF date, log date) default to today; a blank date is left out of the request, never sent as null, so the server's today default applies | P1 |
 | C-1 | Catalog | Search books through Google Books, falling back to Open Library | P0 |
 | C-2 | Catalog | Save title, authors, description, genres, page count, publish date and cover to the shared catalog when a book is first added | P0 |
 | C-3 | Catalog | Seed the catalog from an Open Library data dump (target 10,000+ books) | P1 |
 | C-4 | Catalog | Store an optional series name and number per book; fill from Open Library when available; editable by hand | P2 |
+| C-5 | Catalog | Author page (/authors/:id), linked from author names in search results, book pages and the shelf: the author's books from Open Library, my shelf status on each, grouped by series where known, with add to shelf. The "fetch an author's works" code is shared with the release check (N-2) | P1 |
+| C-6 | Catalog | Nightly job fills in missing descriptions and genres for catalog books from Open Library, within its rate limits | P1 |
 | I-1 | Import | Upload a Goodreads export CSV; match rows by ISBN, then by title plus author; map a custom shelf named "dnf" or "did-not-finish" to DNF | P1 |
 | I-2 | Import | Run the import as a background job with a progress bar | P1 |
 | I-3 | Import | Never import a row twice; re-running an import updates existing entries | P1 |
@@ -103,7 +107,7 @@ P0 is the MVP (tracker and catalog). P1 completes the three-feature loop. P2 is 
 | R-2 | Recommendations | Personal list: top 20 unread books by similarity to the user's 4★+ books; never recommend a book already shelved or DNF'd | P1 |
 | R-3 | Recommendations | "More like this" on each book page | P1 |
 | R-4 | Recommendations | Show the reason ("Because you liked X"); let users dismiss a pick | P2 |
-| R-5 | Recommendations | DNF books are a negative signal: score = similarity to liked books minus weighted similarity to DNF books. Reason sets the weight: writing style or not my genre = strong, pacing or content = medium, not in the mood = none | P1 |
+| R-5 | Recommendations | DNF books are a negative signal: score = similarity to liked books minus weighted similarity to DNF books. Reason sets the weight: writing style or not my genre = strong, pacing, content or other = medium, not in the mood or not specified = none | P1 |
 | R-6 | Recommendations | Boost the next unread book in a series I finished and rated 3★ or higher; skip series I DNF'd | P2 |
 | N-1 | Notifier | Auto-follow authors on a 4★+ rating, never from a DNF; follow or unfollow by hand | P1 |
 | N-2 | Notifier | Daily job checks followed authors for titles published in the last 30 days or upcoming | P1 |
@@ -190,7 +194,7 @@ The plan has five phases over roughly 9 to 11 weeks of part-time work, and each 
 | --- | --- | --- | --- |
 | 1. MVP tracker (P0) | ~3 wks | Auth, search, shelf with DNF, page logs, ratings, dashboard | Deployed publicly and used daily for a week |
 | 2. Goodreads import (P1) | 1-2 wks | CSV upload, matching, progress bar, unmatched-row fixes | 90%+ of my own export matches automatically |
-| 3. Recommendations (P1) | ~2 wks | Catalog seed, TF-IDF index, personal picks, more like this | Picks look sensible for 3 test reader profiles |
+| 3. Recommendations (P1) | ~2 wks | Form fixes, metadata enrichment, author pages, catalog seed, TF-IDF index, personal picks, more like this | Picks look sensible for 3 test reader profiles |
 | 4. Release alerts (P1) | ~2 wks | Auto-follow, daily check, daily digest email, history | Zero duplicate alerts over a week of runs |
 | 5. Polish (P2) | 1-2 wks | More tests, coverage, explanations, README, a month of use | Success metrics measured and written up |
 
@@ -217,4 +221,4 @@ Durations are estimates for one developer working part-time. Don't start a phase
 - **Database: Neon free Postgres.** Plain Postgres that scales to zero when idle and wakes on the next query; no Supabase extras (auth, storage) needed since Django covers them.
 - **Alerts: one daily digest email.** New releases found that day are batched into a single email; no email is sent on days with nothing new.
 - **Series: stored on each book (P2).** Optional name and number, filled from Open Library when available and editable by hand, since API series data is incomplete.
-- **DNF: a fifth shelf status with a reason.** The reason controls how much a DNF lowers similar books in recommendations. Weights are fixed in v1 (writing style or not my genre 1.0, pacing or content 0.5, not in the mood 0) and live in a settings file I can tweak; learning them from my later ratings is a future upgrade once I have a year of history.
+- **DNF: a fifth shelf status with a reason.** The reason controls how much a DNF lowers similar books in recommendations. Weights are fixed in v1 (writing style or not my genre 1.0, pacing, content or other 0.5, not in the mood or not specified 0). The reason is optional: a blank reason is saved as not specified, which carries no penalty and live in a settings file I can tweak; learning them from my later ratings is a future upgrade once I have a year of history.
