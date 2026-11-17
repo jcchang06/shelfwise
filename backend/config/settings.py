@@ -199,6 +199,10 @@ DNF_REASON_WEIGHTS = {
 # Upper bound on pages logged for one book on one day (T-3). Catches typos like 3000 for 30.
 MAX_PAGES_PER_DAY = env.int("MAX_PAGES_PER_DAY", default=2000)
 
+# Genre labels left out of the dashboard's genre mix (T-5), compared case-insensitively.
+# Broad labels like these tag nearly every book and would dwarf the specific genres.
+STATS_EXCLUDED_GENRES = env.list("STATS_EXCLUDED_GENRES", default=["Fiction", "Nonfiction"])
+
 # --- Production hardening -----------------------------------------------------
 
 if not DEBUG:

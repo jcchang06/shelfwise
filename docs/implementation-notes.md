@@ -160,6 +160,30 @@ All are under `/api/logs/`, all require login, and all are filtered to `request.
 - **`pages_logged`** on shelf and log responses, and **the DNF page default**, count only logs dated on or after the entry's `started_at`, or all logs if `started_at` is empty. After a re-read, progress starts again from zero instead of going past 100%, and a DNF on the second read doesn't include the first read's pages.
 - **`reading_log_count`** still counts *every* log for the book, because removing the book deletes all of them.
 
+## T-5: Dashboard stats (decided Nov 16, 2026)
+
+The rules live in `tracking/stats.py`, one function per section, combined by `stats_for()`. Each call makes about 5 grouped queries.
+
+### Endpoint
+
+**`GET /api/stats/?year=`** requires login and covers only your data. It returns all sections at once, because on the free tier separate requests would each queue behind a cold start. `year` defaults to the current year in `TIME_ZONE`, and must be from 1900 to the current year, otherwise 400.
+
+Response: `{year, totals: {pages, finished, dnf, average_rating}, pages_per_month, books_per_year, genre_mix, rating_distribution}`.
+
+### Counting rules
+
+| Section | Counts | Period |
+| --- | --- | --- |
+| `pages_per_month` | every log, by `log_date`, 12 rows with zeros included. `dnf_pages` is the part logged on books *currently* DNF; it's included in `pages` because those pages were read | `year` |
+| `books_per_year` | `finished` = status `finished`, by the year of `finished_at`. `dnf` = status `dnf`, by the year of `dnf_at`. Entries **without that date** go in a final `{"year": null}` row, labelled "Date unknown" in the UI, so the totals still match the shelf after a Goodreads import | all years; ignores `year` |
+| `genre_mix` | finished and DNF books dated in `year`. Each genre counted once per book, merged regardless of case, with the most common spelling shown. `STATS_EXCLUDED_GENRES` (default `Fiction,Nonfiction`, case-insensitive) is left out. Top 8, then "Other". Books with no genres left after that are skipped | `year` |
+| `rating_distribution` | rated books whose `finished_at` is in `year`, 1 to 5 stars, zeros included. Because it goes by `finished_at`, a re-read in progress keeps its stars here. DNF books never have a rating | `year` |
+
+- **Undated entries:** only `books_per_year` has the "Date unknown" row. The other sections need a date to place a book in a year.
+- **Re-reads:** a re-read in progress (status `reading`, with an old `finished_at`) isn't counted as finished. v1 keeps no history of each read, so a book finished twice counts once, in the year of its latest finish.
+- **`totals.finished` and `totals.dnf`** come from `year`'s row in `books_per_year`. **`average_rating`** is worked out from `rating_distribution`, rounded to one decimal, or null when nothing is rated.
+- **Accessibility:** charts need a text alternative (PRD). The frontend builds it from these numbers; the API doesn't return prose.
+
 ## Frontend foundation (decided Nov 16, 2026)
 
 - **Routes:**
