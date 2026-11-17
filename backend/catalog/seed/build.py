@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Q
 
 from catalog.models import Book
@@ -48,7 +49,9 @@ RECENT_YEARS = 3  # this year and the two before it
 RECENT_CANDIDATES = 15_000
 TASTE_SHARE = 0.30
 TASTE_GENRES = 10  # the reader's most common genres
-RETRY_DELAYS = (5, 15)  # seconds before the 2nd and 3rd attempt of a search batch
+# Seconds before the 2nd, 3rd and 4th attempt of a search request (the HTTP session also
+# retries 429/5xx once). A batch that still fails is counted in the report, not fatal.
+RETRY_DELAYS = (5, 15, 45)
 
 Status = UserBook.Status
 
@@ -89,6 +92,8 @@ class BuildReport:
     eligible: int = 0
     target: int = 0
     taste_genres: int = 0
+    lookup_failed: int = 0  # works dropped because their search batch kept failing
+    recent_list_failed: bool = False  # the recent-works list couldn't be fetched
     recent_from_year: int = 0
     pools: Counter[str] = field(default_factory=Counter)
     shortfalls: dict[str, int] = field(default_factory=dict)  # pool -> books it lacked
@@ -145,6 +150,25 @@ def taste_genres(limit: int = TASTE_GENRES) -> list[str]:
 
 
 # --- Building -------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DatabaseSnapshot:
+    """Everything the build needs from the database, read once up front (read_snapshot)
+    so the long dump and API work never touches the database."""
+
+    genres: list[str]
+    catalog_keys: frozenset[str]
+    catalog_isbns: frozenset[str]
+    catalog_names: frozenset[tuple[str, str]]
+
+
+def read_snapshot() -> DatabaseSnapshot:
+    """One short transaction: the reader's genres and the catalog's keys for dedupe."""
+    with transaction.atomic():
+        genres = taste_genres()
+        keys, isbns, names = _catalog_index()
+    return DatabaseSnapshot(genres, frozenset(keys), frozenset(isbns), frozenset(names))
 
 
 def _catalog_index() -> tuple[set[str], set[str], set[tuple[str, str]]]:
@@ -212,18 +236,20 @@ def build_seed(
     dumps_dir: Path,
     target: int,
     candidates: int,
-    genres: list[str],
+    snapshot: DatabaseSnapshot,
     this_year: int | None = None,
     fetch_details: Callable[[list[str]], dict] | None = None,
     fetch_recent: Callable[[int, int, int], dict[str, int]] | None = None,
     sleep: Callable[[float], None] = time.sleep,
     progress: Callable[[str], None] = lambda message: None,
 ) -> tuple[list[SeedBook], BuildReport]:
-    """Choose up to `target` works. Raises dumps.DumpError for missing dumps and
-    BookSourceError if Open Library search still fails after retries."""
+    """Choose up to `target` works. Never queries the database: duplicates are checked
+    against `snapshot`, read before the build. Raises dumps.DumpError for missing dumps.
+    Open Library failures that outlast the retries are counted in the report."""
     this_year = this_year or dt.date.today().year
     fetch_details = fetch_details or open_library.work_details
     fetch_recent = fetch_recent or open_library.popular_recent_work_keys
+    genres = snapshot.genres
     report = BuildReport(target=target, taste_genres=len(genres))
     report.recent_from_year = this_year - RECENT_YEARS + 1
 
@@ -235,7 +261,7 @@ def build_seed(
     except dumps.DumpError:
         ratings = Counter()
 
-    catalog_keys, catalog_isbns, catalog_names = _catalog_index()
+    catalog_keys = snapshot.catalog_keys
     ranked = sorted(readers, key=lambda w: (-readers[w], -ratings[w], w))
     wanted: list[int] = []
     for work in ranked:
@@ -247,9 +273,13 @@ def build_seed(
             break
 
     progress("Listing the most-read recent works (search API)…")
-    recent_readers = _with_retries(
-        sleep, fetch_recent, report.recent_from_year, this_year, RECENT_CANDIDATES
-    )
+    try:
+        recent_readers = _with_retries(
+            sleep, fetch_recent, report.recent_from_year, this_year, RECENT_CANDIDATES
+        )
+    except BookSourceError:
+        recent_readers = {}  # the recent pool will run short, and the report says why
+        report.recent_list_failed = True
     already = set(wanted)
     extra = 0
     for key, count in recent_readers.items():
@@ -296,7 +326,14 @@ def build_seed(
     keys = list(books)
     for start in range(0, len(keys), open_library.WORK_BATCH_SIZE):
         batch = keys[start : start + open_library.WORK_BATCH_SIZE]
-        details = _with_retries(sleep, fetch_details, batch)
+        try:
+            details = _with_retries(sleep, fetch_details, batch)
+        except BookSourceError:
+            # Without language and year these can't be checked: drop and count them.
+            report.lookup_failed += len(batch)
+            for key in batch:
+                del books[key]
+            continue
         for key in batch:
             info = details.get(key)
             if info is None:
@@ -313,8 +350,8 @@ def build_seed(
 
     eligible = _dedupe(
         sorted(books.values(), key=lambda b: (-b.popularity, -b.ratings, b.work_key)),
-        catalog_isbns,
-        catalog_names,
+        snapshot.catalog_isbns,
+        snapshot.catalog_names,
         report,
     )
     report.eligible = len(eligible)

@@ -2,15 +2,18 @@
 
 import gzip
 import json
+from contextlib import contextmanager
+from types import SimpleNamespace
 
 import pytest
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.db import DatabaseError
+from django.db import DatabaseError, connection
+from django.db.backends.signals import connection_created
 
 from catalog.models import Author, Book
 from catalog.seed import load
-from catalog.seed.readonly import read_only_transaction
+from catalog.seed.readonly import read_only_database, release_connection
 from tracking.tests.factories import ReadingLogFactory, UserBookFactory
 
 from .factories import AuthorFactory, BookFactory
@@ -207,28 +210,68 @@ class TestCommands:
 
 
 class TestReadOnlyBuild:
-    def test_writes_fail_inside_the_read_only_transaction(self):
+    def test_writes_fail_while_the_database_is_read_only(self):
         with pytest.raises(DatabaseError, match="read-only transaction"):
-            with read_only_transaction():
+            with read_only_database():
                 Book.objects.create(title="Should not be saved")
 
-    def test_reads_work_inside_it(self):
+    def test_reads_work_and_the_session_is_reset_afterwards(self):
         BookFactory()
-        with read_only_transaction():
+        with read_only_database():
             assert Book.objects.count() == 1
+            with connection.cursor() as cursor:
+                cursor.execute("SHOW default_transaction_read_only")
+                assert cursor.fetchone()[0] == "on"
+        with connection.cursor() as cursor:
+            cursor.execute("SHOW default_transaction_read_only")
+            assert cursor.fetchone()[0] == "off"
 
-    def test_build_catalog_seed_prints_the_database_and_cannot_write(
+    def test_connections_opened_during_the_block_are_read_only_too(self):
+        with read_only_database():
+            assert connection_created.has_listeners()
+            ids = [r[0] for r in connection_created.receivers]
+            assert any("catalog.seed.readonly" in str(i) for i in ids)
+        assert not any("catalog.seed.readonly" in str(r[0]) for r in connection_created.receivers)
+
+    def test_release_closes_the_connection_outside_a_transaction(self):
+        closed = []
+        in_transaction = SimpleNamespace(in_atomic_block=True, close=lambda: closed.append(1))
+        release_connection(in_transaction)  # tests run inside one: left alone
+        assert closed == []
+        autocommit = SimpleNamespace(in_atomic_block=False, close=lambda: closed.append(1))
+        release_connection(autocommit)  # how the command runs
+        assert closed == [1]
+
+    def test_build_command_reads_up_front_then_never_touches_the_database(
         self, tmp_path, monkeypatch, capsys
     ):
+        """A long build must not hold, or reopen, a database session (Neon ends sessions
+        idle in a transaction). After the up-front read the connection counts as closed."""
+        from catalog.management.commands import build_catalog_seed as command
         from catalog.seed import build
 
-        def writes(*args, **kwargs):
-            Book.objects.create(title="A write the build must never make")
-            return [], build.BuildReport()
+        def closed(*args, **kwargs):
+            raise AssertionError("the build touched the database after the snapshot")
 
-        monkeypatch.setattr("catalog.management.commands.build_catalog_seed.build_seed", writes)
-        with pytest.raises(DatabaseError, match="read-only transaction"):
-            call_command(
-                "build_catalog_seed", "--dumps", str(tmp_path), "--out", str(tmp_path / "s.gz")
-            )
-        assert capsys.readouterr().out.startswith("Database: ")
+        def release():
+            monkeypatch.setattr(connection, "cursor", closed)
+            monkeypatch.setattr(connection, "ensure_connection", closed)
+
+        monkeypatch.setattr(command, "release_connection", release)
+        monkeypatch.setattr(command, "read_only_database", _no_reset_read_only)
+        monkeypatch.setattr(
+            command, "build_seed", lambda *a, **k: ([], build.BuildReport(target=1))
+        )
+        call_command(
+            "build_catalog_seed", "--dumps", str(tmp_path), "--out", str(tmp_path / "s.gz")
+        )
+        out = capsys.readouterr().out
+        assert out.startswith("Database: ") and "Seed: 0 of 1 books" in out
+
+
+@contextmanager
+def _no_reset_read_only():
+    """read_only_database without the closing reset (the test's cursor is 'closed')."""
+    with connection.cursor() as cursor:
+        cursor.execute("SET TRANSACTION READ ONLY")
+    yield

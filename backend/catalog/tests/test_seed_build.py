@@ -1,5 +1,6 @@
 """Building the catalog seed (C-3) from tiny fake Open Library dumps."""
 
+import dataclasses
 import gzip
 import json
 from pathlib import Path
@@ -96,11 +97,12 @@ def details(years=None, languages=("eng",), missing=()):
 
 
 def run(dumps_dir, target=4, genres=(), candidates=100, **kwargs):
+    snapshot = dataclasses.replace(build.read_snapshot(), genres=list(genres))
     return build.build_seed(
         dumps_dir,
         target=target,
         candidates=candidates,
-        genres=list(genres),
+        snapshot=snapshot,
         this_year=YEAR,
         fetch_details=kwargs.pop("fetch", details()),
         fetch_recent=kwargs.pop("recent", lambda *args: {}),
@@ -208,16 +210,62 @@ class TestBuild:
         books, report = run(dumps_dir, target=10)
         assert [b.work_key for b in books] == ["OL1W"] and report.duplicate_in_seed == 1
 
-    def test_retries_search_then_gives_up(self, dumps_dir):
+    def test_a_batch_that_keeps_failing_is_dropped_and_counted(self, dumps_dir, monkeypatch):
+        monkeypatch.setattr(build.open_library, "WORK_BATCH_SIZE", 2)
         attempts = []
+        good = details()
 
-        def failing(keys):
-            attempts.append(keys)
+        def flaky(keys):
+            attempts.append(list(keys))
+            if "OL1W" in keys:
+                raise BookSourceError("ConnectTimeout")
+            return good(keys)
+
+        books, report = run(dumps_dir, target=10, fetch=flaky)
+        assert len([a for a in attempts if "OL1W" in a]) == 1 + len(build.RETRY_DELAYS)
+        assert report.lookup_failed == 2  # OL1W and OL2W shared the failing batch
+        assert [b.work_key for b in books] == ["OL3W", "OL6W"]
+
+    def test_a_batch_that_recovers_on_retry_loses_nothing(self, dumps_dir):
+        good, failed_once = details(), []
+
+        def blip(keys):
+            if not failed_once:
+                failed_once.append(True)
+                raise BookSourceError("ConnectTimeout")
+            return good(keys)
+
+        books, report = run(dumps_dir, target=10, fetch=blip)
+        assert report.lookup_failed == 0 and len(books) == 4
+
+    def test_the_recent_list_failing_is_reported_not_fatal(self, dumps_dir):
+        def down(*args):
             raise BookSourceError("down")
 
-        with pytest.raises(BookSourceError):
-            run(dumps_dir, fetch=failing)
-        assert len(attempts) == 3
+        books, report = run(dumps_dir, target=10, recent=down)
+        assert report.recent_list_failed and len(books) == 4
+
+    def test_never_queries_the_database_after_the_snapshot(self, dumps_dir, monkeypatch):
+        from django.db import connection
+
+        snapshot = build.read_snapshot()
+
+        def closed(*args, **kwargs):
+            raise AssertionError("the build touched the database after the snapshot")
+
+        monkeypatch.setattr(connection, "cursor", closed)
+        monkeypatch.setattr(connection, "ensure_connection", closed)
+        books, _ = build.build_seed(
+            dumps_dir,
+            10,
+            100,
+            snapshot,
+            this_year=YEAR,
+            fetch_details=details(),
+            fetch_recent=lambda *a: {},
+            sleep=lambda s: None,
+        )
+        assert len(books) == 4
 
 
 class TestRecentCandidates:
