@@ -106,6 +106,23 @@ class TestRefresh:
         assert response.status_code == 200
         assert response.json()["access"]
 
+    def test_refresh_rotates_the_refresh_token(self, api_client):
+        UserFactory(email="reader@example.com", password=PASSWORD)
+        first = login(api_client).json()["refresh"]
+        body = api_client.post(reverse("accounts:token-refresh"), {"refresh": first}).json()
+        assert body["refresh"] and body["refresh"] != first
+        # The new one works...
+        again = api_client.post(reverse("accounts:token-refresh"), {"refresh": body["refresh"]})
+        assert again.status_code == 200
+
+    def test_old_refresh_token_stays_valid_without_blacklist(self, api_client):
+        # Documented v1 trade-off: rotation without a blacklist doesn't revoke old tokens.
+        UserFactory(email="reader@example.com", password=PASSWORD)
+        first = login(api_client).json()["refresh"]
+        api_client.post(reverse("accounts:token-refresh"), {"refresh": first})
+        reused = api_client.post(reverse("accounts:token-refresh"), {"refresh": first})
+        assert reused.status_code == 200
+
     def test_garbage_refresh_token_rejected(self, api_client):
         response = api_client.post(reverse("accounts:token-refresh"), {"refresh": "nope"})
         assert response.status_code == 401

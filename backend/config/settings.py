@@ -146,6 +146,10 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=env.int("JWT_ACCESS_MINUTES", default=15)),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=env.int("JWT_REFRESH_DAYS", default=7)),
     "UPDATE_LAST_LOGIN": True,
+    # Each refresh also returns a new refresh token, so daily use slides the 7-day window
+    # forward instead of forcing a weekly re-login. No blacklist in v1: an old refresh
+    # token stays valid until it expires (see docs/implementation-notes.md, T-1).
+    "ROTATE_REFRESH_TOKENS": True,
 }
 
 # v1 has one user. Set to false in production once your account exists, so strangers
