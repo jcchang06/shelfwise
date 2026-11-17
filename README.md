@@ -84,6 +84,9 @@ All endpoints are under `/api/` and return JSON. Authenticated endpoints expect 
 | GET / POST | `/api/imports/` | token | Your Goodreads imports; POST a Goodreads export CSV (multipart `file`) to start one |
 | GET | `/api/imports/{id}/` | token | An import's progress and counts |
 | POST | `/api/imports/{id}/process/` | token | Run one ~20-second batch of an import; 409 if another batch is running |
+| GET | `/api/imports/{id}/rows/?state=unmatched` | token | Rows that need you: `unmatched` (default) or `failed`, each with a ready-made `search_query` |
+| POST | `/api/imports/{id}/rows/{row}/resolve/` | token | Match a row by hand with `book_id` (or `source` + `source_id`); adds it to your shelf with its Goodreads status, rating and dates |
+| POST | `/api/imports/{id}/rows/{row}/dismiss/` | token | Skip an unmatched row |
 
 Book data comes from [Google Books](https://books.google.com) and [Open Library](https://openlibrary.org). Search responses name their `source`, so the UI can show the right attribution.
 
