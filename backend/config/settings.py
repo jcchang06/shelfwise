@@ -170,6 +170,9 @@ DNF_REASON_WEIGHTS = {
     "other": 0.5,
 }
 
+# Upper bound on pages logged for one book on one day (T-3). Catches typos like 3000 for 30.
+MAX_PAGES_PER_DAY = env.int("MAX_PAGES_PER_DAY", default=2000)
+
 # --- Production hardening -----------------------------------------------------
 
 if not DEBUG:

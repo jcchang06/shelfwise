@@ -78,7 +78,7 @@ All are under `/api/shelf/`, all require login, and all are filtered to `request
 | POST | `/api/shelf/` | Add `{book_id}` or `{source, source_id}`, the second form saving to the catalog first. Optional `status` (default `want_to_read`) and fields. Returns 201, or **409 with the existing entry's `id`** if the book is already on the shelf |
 | GET / PATCH / DELETE | `/api/shelf/{id}/` | PATCH only, no PUT. DELETE returns 204 |
 
-- **Each entry includes `pages_logged` and `reading_log_count`.**
+- **Each entry includes `pages_logged` and `reading_log_count`.** `pages_logged` covers only the current read (see T-3); `reading_log_count` covers every log for the book.
 - **Removing a book** is a plain DELETE that also deletes the user's `ReadingLog` rows for that book. The frontend asks for confirmation first and uses `reading_log_count` in the message.
 
 ### Status changes
@@ -91,14 +91,15 @@ Side effects only happen when the status actually changes. Values sent in the re
 | `want_to_read` → `reading` | `started_at` = today only if empty |
 | `dnf` → `reading` | `started_at` is **kept**, because resuming continues the same read. Filled with today only if empty |
 | any → `finished` | `finished_at` = today, **overwriting** an earlier date, so a re-read marked finished again gets the new date |
-| any → `dnf` | **rating cleared**, because stars and a DNF don't mix. `finished_at` is kept. `dnf_at` = today. `dnf_page` = total pages logged, capped at `page_count`, or null if there are no logs. `dnf_reason` is required |
+| any → `dnf` | **rating cleared**, because stars and a DNF don't mix. `finished_at` is kept. `dnf_at` = today. `dnf_page` = pages logged in the current read (see T-3), capped at `page_count`, or null if there are none. `dnf_reason` is required |
 | `dnf` → any | all DNF fields cleared (`dnf_page`, `dnf_at`, `dnf_reason`, `dnf_note`). Logs are kept |
 | `finished` → `reading` / `want_to_read` | **rating and `finished_at` kept.** A re-read mustn't erase a 5★ that drives recommendations and auto-follow |
 
 ### Validation (400, with every broken rule reported at once)
 
+- **Only editable fields may be sent.** `POST /api/shelf/` and `PATCH /api/shelf/{id}/` reject unknown and read-only fields with a 400 (`{field: ["This field can't be set here."]}`), rather than silently ignoring them as DRF does by default. The editable fields are `status`, `rating`, `review`, `started_at`, `finished_at`, `dnf_page`, `dnf_at`, `dnf_reason` and `dnf_note`, plus `book_id` or `source` + `source_id` on POST. Read-only fields such as `id`, `book`, `pages_logged`, `reading_log_count`, `created_at` and `updated_at` must not be sent back. **The frontend must send only the fields it means to change**, never a whole entry from a GET.
 - **Rating (T-4)** can only be **set or changed** when the status after the request is `finished`.
-  - Re-sending the current value is fine, so a client can PATCH a whole object back.
+  - Re-sending the current value is fine, so a form can send its rating field unchanged.
   - Sending `null` while moving to `dnf` is also fine.
   - A kept rating can't be changed or cleared during a re-read until the book is finished again.
 - **Reviews** are allowed on any status.
@@ -114,9 +115,45 @@ Side effects only happen when the status actually changes. Values sent in the re
 - **T-5 stats:** a re-read in progress has status `reading` but keeps its old `finished_at`. "Books finished per year" should count `status = finished` by `finished_at`, not every row with a `finished_at`. v1 doesn't keep a history of each read.
 - **R-2 and N-1:** a kept rating on a re-read still counts as "rated 4★+". DNF books never have a rating.
 
-## T-3: Page logs
+## T-3: Page logs (decided Nov 16, 2026)
 
-- **One log row per user, book and day.** The database enforces this.
-- **POSTing a log** for a book and day that already has one *adds* `pages_read` to it, so logging twice in a day accumulates.
-- **PATCHing a log** *sets* that day's total.
-- **Logging pages on a `want_to_read` book** moves it to `reading` and sets `started_at` to the log date if it's empty.
+The rules live in `tracking/reading_logs.py` (`log_pages`, `update_log`).
+
+### Endpoints
+
+All are under `/api/logs/`, all require login, and all are filtered to `request.user`. Another user's log returns 404. Unknown and read-only fields are rejected, as on the shelf endpoints.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/api/logs/?book=&from=&to=` | Paginated, newest day first |
+| POST | `/api/logs/` `{book_id, pages_read, log_date?}` | `log_date` defaults to today. If that book and day already have a log, `pages_read` is **added** to it. Returns 201 for a new row, 200 when added to an existing one |
+| PATCH | `/api/logs/{id}/` `{pages_read?, log_date?}` | **Sets** the day's total, or moves the log to another day |
+| DELETE | `/api/logs/{id}/` | 204. Shelf status and dates are unchanged |
+
+**Responses** to POST and PATCH include the log plus a short shelf entry, `shelf_entry: {id, status, started_at, pages_logged}`, so the UI can update progress and show "moved to Reading" without a second request. `shelf_entry` is null for a log with no shelf entry, which can only happen for logs created in the admin. GET responses return the log fields only.
+
+**Errors** come back as 400 `{field: [message]}`. When a PATCH tries to move a log onto a taken day, the response also has `conflict_id`, the other log's `id` **as an integer**. That response is built directly, because DRF's `ValidationError` would turn it into a string.
+
+### Rules
+
+- **One row per user, book and day.** The database enforces this. Same-day POSTs for one book can't overwrite each other, because the shelf entry row is locked for the duration of the update.
+- **The book must be on your shelf.** Otherwise the response is 400 "Add this book to your shelf first."
+- **`pages_read`** must be from 1 to `MAX_PAGES_PER_DAY` (environment variable, default 2000). The limit applies to the day's total *after* adding. To clear a day, DELETE the log.
+- **`log_date`** can't be after today (in `TIME_ZONE`).
+- **PATCH moving a log onto a day that already has one** for that book returns 400 with the existing log's `id`. The UI tells you to edit that day instead. Days are never merged.
+- **What happens to the shelf entry:**
+
+| Shelf status when logging | Effect |
+| --- | --- |
+| `want_to_read` | moves to `reading`; `started_at` = the log's date if empty (POST only) |
+| `reading`, `finished`, `dnf` | no status change. Logging past days is allowed, and resuming a DNF book is a deliberate shelf PATCH |
+
+- **Backfilling moves `started_at` back.** This applies to a POST, or a PATCH that changes `log_date`. When the log's date is earlier than the entry's `started_at`, `started_at` moves back to that date, **unless** the date is on or before the *previous read's* `finished_at`, in which case the log belongs to an earlier read and `started_at` stays.
+  - **"Previous read's `finished_at`"** means a `finished_at` earlier than `started_at`, which only happens during a re-read. For a finished first read (`started_at` ≤ `finished_at`), a backfill before the start still moves `started_at` back.
+  - **`started_at` never moves forward automatically.** It doesn't when a log is deleted or moved to a later day, and it isn't invented for a `reading`, `finished` or `dnf` entry that has none.
+
+### The current read (affects T-2 too)
+
+- **`pages_logged`** on shelf and log responses, and **the DNF page default**, count only logs dated on or after the entry's `started_at`, or all logs if `started_at` is empty. After a re-read, progress starts again from zero instead of going past 100%, and a DNF on the second read doesn't include the first read's pages.
+- **`reading_log_count`** still counts *every* log for the book, because removing the book deletes all of them.
+

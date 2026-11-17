@@ -1,7 +1,18 @@
 """Shelf endpoints (T-2, T-4, T-6). Every queryset here is filtered to request.user."""
 
+import datetime as dt
+
 from django.db import IntegrityError, transaction
-from django.db.models import Count, IntegerField, OuterRef, Prefetch, Subquery, Sum, Value
+from django.db.models import (
+    Count,
+    DateField,
+    IntegerField,
+    OuterRef,
+    Prefetch,
+    Subquery,
+    Sum,
+    Value,
+)
 from django.db.models.functions import Coalesce
 from rest_framework import generics, serializers, status
 from rest_framework.exceptions import NotFound
@@ -28,6 +39,11 @@ ORDERINGS = {
 def shelf_for(user):
     """The user's shelf with everything the serializer needs, in a constant number of queries."""
     logs = ReadingLog.objects.filter(user=OuterRef("user"), book=OuterRef("book")).values("book")
+    # pages_logged covers the current read only (see services.current_read_logs);
+    # reading_log_count covers every log, since removing the book deletes them all.
+    current_read = logs.filter(
+        log_date__gte=Coalesce(OuterRef("started_at"), Value(dt.date.min), output_field=DateField())
+    )
     return (
         UserBook.objects.filter(user=user)
         .select_related("book")
@@ -39,7 +55,7 @@ def shelf_for(user):
         )
         .annotate(
             pages_logged=Coalesce(
-                Subquery(logs.annotate(total=Sum("pages_read")).values("total")),
+                Subquery(current_read.annotate(total=Sum("pages_read")).values("total")),
                 Value(0),
                 output_field=IntegerField(),
             ),
