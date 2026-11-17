@@ -49,6 +49,7 @@ All endpoints are under `/api/` and return JSON. Authenticated endpoints expect 
 | GET | `/api/logs/?book=&from=&to=` | token | Your page logs, newest day first |
 | POST | `/api/logs/` | token | Log `pages_read` for `book_id` (today by default); a second log the same day adds to it |
 | GET / PATCH / DELETE | `/api/logs/{id}/` | token | One log; PATCH sets the day's total or moves it to another day |
+| GET | `/api/stats/?year=` | token | Dashboard numbers for a year: pages per month, books per year, genre mix, ratings |
 
 Book data comes from [Google Books](https://books.google.com) and [Open Library](https://openlibrary.org). Search responses name their `source`, so the UI can show the right attribution.
 
