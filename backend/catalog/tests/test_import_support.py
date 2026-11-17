@@ -156,3 +156,25 @@ class TestSaveBookResult:
         book.refresh_from_db()
         assert book.open_library_key == "OL1W"
         assert Book.objects.count() == 1
+
+
+def test_user_agent_follows_the_setting_even_after_the_session_exists(mocked, settings):
+    """Regression: the cached session used to keep the User-Agent it was created with."""
+    from responses import matchers as m
+
+    open_library._session()  # create (or reuse) the cached session first
+    settings.OPEN_LIBRARY_USER_AGENT = "Changed-UA/2.0"
+    mocked.get(
+        OL_SEARCH, json={"docs": []}, match=[m.header_matcher({"User-Agent": "Changed-UA/2.0"})]
+    )
+    assert open_library.search("anything") == []
+
+
+def test_title_author_search_is_cached(mocked):
+    mocked.get(
+        OL_SEARCH,
+        json={"docs": [{"key": "/works/OL1W", "title": "Dune", "author_name": ["Frank Herbert"]}]},
+    )
+    first = open_library.search_title_author("Dune", "Frank Herbert")
+    second = open_library.search_title_author("dune", "frank herbert")
+    assert first == second and first[0].source_id == "OL1W" and len(mocked.calls) == 1

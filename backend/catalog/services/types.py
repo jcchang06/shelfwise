@@ -43,6 +43,11 @@ class QuotaExceededError(BookSourceError):
     """Google Books' daily quota is used up; callers should go to the fallback source."""
 
 
+class RateLimitedError(BookSourceError):
+    """Google Books' short-term (per-minute) rate limit was hit. Transient: try again in a
+    moment or use the fallback source; unlike QuotaExceededError it doesn't last all day."""
+
+
 class BookNotFoundError(Exception):
     """The source has no book with the requested ID."""
 
