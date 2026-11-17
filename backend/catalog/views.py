@@ -8,6 +8,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from tracking.services import shelf_entries_for  # per-user; only read to label results
+
 from .models import Book, BookAuthor
 from .serializers import (
     PAGE_SIZES,
@@ -56,8 +58,15 @@ class BookSearchView(APIView):
         except BookSearchUnavailableError as exc:
             raise BookSourceUnavailable() from exc
 
+        # The source results above may come from the shared 24h cache. book_id and shelf
+        # depend on the current catalog and on who is asking, so they are computed here,
+        # per request, after the cache read, and never stored in the cache.
         ids = catalog_ids_for(found.results)
-        results = [search_result_data(r, i) for r, i in zip(found.results, ids, strict=True)]
+        shelves = shelf_entries_for(request.user, ids)
+        results = [
+            search_result_data(result, book_id, shelves.get(book_id))
+            for result, book_id in zip(found.results, ids, strict=True)
+        ]
         full_page = len(results) >= PAGE_SIZES[found.source]
         return Response(
             {

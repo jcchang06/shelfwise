@@ -8,6 +8,8 @@ from rest_framework.throttling import ScopedRateThrottle
 from accounts.tests.factories import UserFactory
 from catalog.models import Book
 from catalog.services import google_books
+from tracking.models import UserBook
+from tracking.tests.factories import UserBookFactory
 
 from .conftest import GOOGLE_SEARCH_RE, OL_SEARCH_RE, google_volume_url, load_fixture
 from .factories import AuthorFactory, BookFactory
@@ -19,8 +21,13 @@ BOOKS = reverse("catalog:book-list")
 
 
 @pytest.fixture
-def client(api_client):
-    api_client.force_authenticate(UserFactory())
+def user():
+    return UserFactory()
+
+
+@pytest.fixture
+def client(api_client, user):
+    api_client.force_authenticate(user)
     return api_client
 
 
@@ -60,6 +67,7 @@ class TestSearch:
             "isbn_13",
             "cover_url",
             "book_id",
+            "shelf",
         }
         assert isinstance(first["authors"], list) and all(
             isinstance(a, str) for a in first["authors"]
@@ -203,3 +211,76 @@ class TestDetail:
         url = reverse("catalog:book-detail", args=[book.pk])
         with django_assert_max_num_queries(3):  # book + book_authors(+author join)
             client.get(url)
+
+
+class TestSearchShelfStatus:
+    """`shelf` (and `book_id`) are per-request data layered on top of cached source results."""
+
+    def search(self, client, q="project hail mary"):
+        return client.get(SEARCH, {"q": q}).json()["results"]
+
+    def test_null_when_not_on_my_shelf(self, client, mocked):
+        mocked.get(GOOGLE_SEARCH_RE, json=load_fixture("google_search"))
+        assert all(r["shelf"] is None for r in self.search(client))
+
+    def test_shows_my_entry(self, client, user, mocked):
+        body = load_fixture("google_search")
+        book = BookFactory(google_books_id=body["items"][0]["id"])
+        entry = UserBookFactory(user=user, book=book, status=UserBook.Status.READING)
+        mocked.get(GOOGLE_SEARCH_RE, json=body)
+
+        first = self.search(client)[0]
+
+        assert first["book_id"] == book.id
+        assert first["shelf"] == {"id": entry.id, "status": "reading"}
+
+    def test_other_users_shelf_is_never_shown(self, client, mocked):
+        body = load_fixture("google_search")
+        book = BookFactory(google_books_id=body["items"][0]["id"])
+        UserBookFactory(book=book)  # someone else's shelf
+        mocked.get(GOOGLE_SEARCH_RE, json=body)
+
+        first = self.search(client)[0]
+
+        assert first["book_id"] == book.id  # the catalog is shared...
+        assert first["shelf"] is None  # ...shelves are not
+
+    def test_add_then_search_again_shows_book_id_and_shelf_despite_cache(self, client, mocked):
+        """Search, add the book, search the same query again: the second response comes from
+        the 24h source cache (no second Google call) yet shows the new book_id and shelf."""
+        body = load_fixture("google_search")
+        volume_id = body["items"][0]["id"]
+        search_mock = mocked.get(GOOGLE_SEARCH_RE, json=body)
+        mocked.get(google_volume_url(volume_id), json=load_fixture("google_volume"))
+
+        before = self.search(client)[0]
+        assert before["source_id"] == volume_id
+        assert (before["book_id"], before["shelf"]) == (None, None)
+
+        added = client.post(
+            "/api/shelf/", {"source": "google_books", "source_id": volume_id}, format="json"
+        )
+        assert added.status_code == 201
+
+        after = self.search(client)[0]
+
+        assert search_mock.call_count == 1  # second search was served from the cache
+        assert after["book_id"] == added.json()["book"]["id"]
+        assert after["shelf"] == {"id": added.json()["id"], "status": "want_to_read"}
+
+    def test_cache_holds_only_source_data(self, client, mocked):
+        mocked.get(GOOGLE_SEARCH_RE, json=load_fixture("google_search"))
+        self.search(client)
+        cached = google_books.search("project hail mary")  # served from the cache
+        assert cached and all(not hasattr(r, "shelf") and not hasattr(r, "book_id") for r in cached)
+
+    def test_shelf_lookup_is_one_query(self, client, user, mocked, django_assert_max_num_queries):
+
+        body = full_google_page()
+        for item in body["items"][:10]:
+            UserBookFactory(user=user, book=BookFactory(google_books_id=item["id"], isbn_13=""))
+        mocked.get(GOOGLE_SEARCH_RE, json=body)
+        # catalog ids (google ids, OL keys, ISBNs) + shelf entries; auth is forced
+        with django_assert_max_num_queries(4):
+            results = self.search(client, "dune")
+        assert sum(1 for r in results if r["shelf"]) == 10

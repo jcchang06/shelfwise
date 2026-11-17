@@ -18,8 +18,14 @@ class SearchQuerySerializer(serializers.Serializer):
     page = serializers.IntegerField(min_value=1, max_value=MAX_SEARCH_PAGES, default=1)
 
 
+class SearchShelfSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    status = serializers.CharField()
+
+
 class SearchResultSerializer(serializers.Serializer):
-    """A search hit. `book_id` is the catalog book it would save to, or null if new."""
+    """A search hit. `book_id` is the catalog book it would save to (null if new); `shelf`
+    is the caller's shelf entry for that book (null if not shelved)."""
 
     source = serializers.CharField()
     source_id = serializers.CharField()
@@ -32,12 +38,13 @@ class SearchResultSerializer(serializers.Serializer):
     isbn_13 = serializers.CharField()
     cover_url = serializers.CharField()
     book_id = serializers.IntegerField(allow_null=True)
+    shelf = SearchShelfSerializer(allow_null=True)
 
     def get_authors(self, obj: dict) -> list[str]:
         return [author.name for author in obj["authors"]]
 
 
-def search_result_data(result: BookResult, book_id: int | None) -> dict:
+def search_result_data(result: BookResult, book_id: int | None, shelf: dict | None) -> dict:
     return {
         "source": result.source.value,
         "source_id": result.source_id,
@@ -50,6 +57,7 @@ def search_result_data(result: BookResult, book_id: int | None) -> dict:
         "isbn_13": result.isbn_13,
         "cover_url": result.cover_url,
         "book_id": book_id,
+        "shelf": shelf,
     }
 
 
