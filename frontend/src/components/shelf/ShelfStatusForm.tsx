@@ -1,30 +1,17 @@
 import { useId, useState, type FormEvent } from 'react';
 
 import type { ShelfChanges } from '../../api/shelf';
-import {
-  CHOOSABLE_DNF_REASONS,
-  DNF_REASON_LABELS,
-  SHELF_STATUS_LABELS,
-  type DnfReason,
-  type ShelfEntry,
-  type ShelfStatus,
-} from '../../api/types';
+import { SHELF_STATUS_LABELS, type ShelfEntry, type ShelfStatus } from '../../api/types';
 import { localDateISO } from '../../dates';
 import { useUpdateShelfEntry } from '../../hooks/useShelf';
 import { FieldLabel } from '../forms/FieldLabel';
 import { useFocusInvalid } from '../forms/useFocusInvalid';
+import { DnfFields } from './DnfFields';
+import { DNF_FIELD_NAMES, dnfChanges, initialDnfValues, type DnfValues } from './dnfValues';
 import { describeError } from './useFormErrors';
 
 const STATUSES: ShelfStatus[] = ['want_to_read', 'reading', 'finished', 'dnf'];
-const FIELDS = [
-  'status',
-  'started_at',
-  'finished_at',
-  'dnf_reason',
-  'dnf_page',
-  'dnf_at',
-  'dnf_note',
-] as const;
+const FIELDS = ['status', 'started_at', 'finished_at', ...DNF_FIELD_NAMES] as const;
 
 interface ShelfStatusFormProps {
   entry: ShelfEntry;
@@ -59,10 +46,7 @@ export function ShelfStatusForm({ entry, onSaved }: ShelfStatusFormProps) {
   const [status, setStatus] = useState<ShelfStatus>(entry.status);
   const [startedOn, setStartedOn] = useState(startDefault);
   const [finishedOn, setFinishedOn] = useState(today);
-  const [dnfReason, setDnfReason] = useState<DnfReason | ''>('');
-  const [dnfPage, setDnfPage] = useState(loggedDefault);
-  const [dnfAt, setDnfAt] = useState(today);
-  const [dnfNote, setDnfNote] = useState('');
+  const [dnf, setDnf] = useState<DnfValues>(() => initialDnfValues(today, loggedDefault));
   const [clientErrors, setClientErrors] = useState<Record<string, string>>({});
 
   const changed = status !== entry.status;
@@ -74,7 +58,7 @@ export function ShelfStatusForm({ entry, onSaved }: ShelfStatusFormProps) {
     if (update.isPending) return; // Save stays enabled; a second press does nothing
     const problems: Record<string, string> = {};
     const changes: ShelfChanges = { status };
-    const date = (field: 'started_at' | 'finished_at' | 'dnf_at', value: string) => {
+    const date = (field: 'started_at' | 'finished_at', value: string) => {
       if (!value) return; // blank: left out, never null (T-8)
       if (value > today) problems[field] = "This date can't be in the future.";
       changes[field] = value;
@@ -83,10 +67,9 @@ export function ShelfStatusForm({ entry, onSaved }: ShelfStatusFormProps) {
     if (status === 'reading') date('started_at', startedOn);
     if (status === 'finished') date('finished_at', finishedOn);
     if (status === 'dnf') {
-      if (dnfReason) changes.dnf_reason = dnfReason;
-      if (dnfPage !== '') changes.dnf_page = Number(dnfPage);
-      date('dnf_at', dnfAt);
-      if (dnfNote.trim()) changes.dnf_note = dnfNote.trim();
+      const result = dnfChanges(dnf, today);
+      Object.assign(changes, result.changes);
+      Object.assign(problems, result.problems);
     }
     setClientErrors(problems);
     if (Object.keys(problems).length) {
@@ -110,7 +93,7 @@ export function ShelfStatusForm({ entry, onSaved }: ShelfStatusFormProps) {
       </p>
     ) : null;
   const dateField = (
-    field: 'started_at' | 'finished_at' | 'dnf_at',
+    field: 'started_at' | 'finished_at',
     label: string,
     value: string,
     set: (value: string) => void,
@@ -181,57 +164,14 @@ export function ShelfStatusForm({ entry, onSaved }: ShelfStatusFormProps) {
         : null}
 
       {changed && status === 'dnf' ? (
-        <>
-          <div className="form-field">
-            <FieldLabel htmlFor={`${id}-reason`} need="optional">
-              Why did you stop?
-            </FieldLabel>
-            <select
-              id={`${id}-reason`}
-              value={dnfReason}
-              onChange={(event) => setDnfReason(event.target.value as DnfReason | '')}
-              aria-invalid={invalid('dnf_reason')}
-              aria-describedby={describedBy('dnf_reason')}
-            >
-              <option value="">{DNF_REASON_LABELS.not_specified}</option>
-              {CHOOSABLE_DNF_REASONS.map((value) => (
-                <option key={value} value={value}>
-                  {DNF_REASON_LABELS[value]}
-                </option>
-              ))}
-            </select>
-            {fieldError('dnf_reason')}
-          </div>
-          <div className="form-field">
-            <FieldLabel htmlFor={`${id}-page`} need="optional">
-              Stopped at page
-            </FieldLabel>
-            <input
-              id={`${id}-page`}
-              type="number"
-              inputMode="numeric"
-              min={0}
-              max={entry.book.page_count ?? undefined}
-              value={dnfPage}
-              onChange={(event) => setDnfPage(event.target.value)}
-              aria-invalid={invalid('dnf_page')}
-              aria-describedby={describedBy('dnf_page')}
-            />
-            {fieldError('dnf_page')}
-          </div>
-          {dateField('dnf_at', 'Stopped on', dnfAt, setDnfAt)}
-          <div className="form-field">
-            <FieldLabel htmlFor={`${id}-note`} need="optional">
-              Note
-            </FieldLabel>
-            <textarea
-              id={`${id}-note`}
-              rows={2}
-              value={dnfNote}
-              onChange={(event) => setDnfNote(event.target.value)}
-            />
-          </div>
-        </>
+        <DnfFields
+          idPrefix={id}
+          values={dnf}
+          onChange={setDnf}
+          errors={errors}
+          today={today}
+          pageCount={entry.book.page_count}
+        />
       ) : null}
 
       {server.summary ? (

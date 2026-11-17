@@ -225,6 +225,7 @@ Applies to adding from search, the book page's status, details, and rating and r
 - **Dates are pre-filled with what the API would use** (T-8): Finished on, Stopped on and the log date show today. Started on (new, shown when moving to Reading) shows today for a re-read, and otherwise keeps an existing start date, as the API does when resuming a DNF.
 - **A blank date is left out of the request, never sent as null.** When the status changes, the API then uses its own default, today. **When editing an existing date** (details form, a log's day), leaving out the field keeps the saved date, and the field says "Left blank, this keeps Oct 1, 2026." A form can no longer clear a date back to unknown.
 - **DNF reason is optional.** The blank choice is labelled "Not specified". In the status form it's left out (the API saves `not_specified`); in the details form, choosing it on a DNF that had a reason sends `not_specified`. `CHOOSABLE_DNF_REASONS` lists every reason except `not_specified`, so it isn't offered twice.
+- **DNF from search.** The search add form offers all four shelves. Choosing Did not finish shows the same optional fields as the book page (`shelf/DnfFields.tsx`, with the request-building helpers in `shelf/dnfValues.ts`): reason (blank = not specified), stopped at page (blank, because a new book has no logs), stopped on (today) and a note. Blank fields are left out of the POST, so the API applies `not_specified` and today.
 
 ## Dashboard (built Nov 16, 2026)
 

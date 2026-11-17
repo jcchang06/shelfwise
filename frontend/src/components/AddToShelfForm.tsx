@@ -7,9 +7,12 @@ import { localDateISO } from '../dates';
 import { useAddToShelf } from '../hooks/useAddToShelf';
 import { FieldLabel } from './forms/FieldLabel';
 import { useFocusInvalid } from './forms/useFocusInvalid';
+import { DnfFields } from './shelf/DnfFields';
+import { DNF_FIELD_NAMES, dnfChanges, initialDnfValues, type DnfValues } from './shelf/dnfValues';
 
-/** Statuses offered from search. DNF is set on the book page, with its page and reason. */
-const ADDABLE: ShelfStatus[] = ['want_to_read', 'reading', 'finished'];
+/** Every status can be chosen when adding; DNF brings its optional fields (T-6, T-7). */
+const ADDABLE: ShelfStatus[] = ['want_to_read', 'reading', 'finished', 'dnf'];
+const FIELDS = ['finished_at', ...DNF_FIELD_NAMES];
 
 /** A search result (source + maybe book_id) or a catalog book (book_id). */
 export interface AddTarget {
@@ -37,7 +40,9 @@ export function AddToShelfForm({ result, onAdded }: AddToShelfFormProps) {
   const today = localDateISO();
   const [status, setStatus] = useState<ShelfStatus>('want_to_read');
   const [finishedOn, setFinishedOn] = useState(today);
-  const [dateError, setDateError] = useState<string | null>(null);
+  // A new book has no logs yet, so the stopped-at page starts blank.
+  const [dnf, setDnf] = useState<DnfValues>(() => initialDnfValues(today));
+  const [clientErrors, setClientErrors] = useState<Record<string, string>>({});
   const [alreadyShelved, setAlreadyShelved] = useState(false);
   const add = useAddToShelf();
   const { ref, focusInvalid } = useFocusInvalid();
@@ -49,15 +54,23 @@ export function AddToShelfForm({ result, onAdded }: AddToShelfFormProps) {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (add.isPending) return; // Save stays enabled; a second press does nothing
-    setDateError(null);
-    if (status === 'finished' && finishedOn && finishedOn > today) {
-      setDateError("The finish date can't be in the future.");
+    const problems: Record<string, string> = {};
+    const payload: AddToShelfPayload = { ...bookReference(result), status };
+    // A blank date is left out, so the API's "today" default applies (T-8).
+    if (status === 'finished' && finishedOn) {
+      if (finishedOn > today) problems.finished_at = "The finish date can't be in the future.";
+      payload.finished_at = finishedOn;
+    }
+    if (status === 'dnf') {
+      const found = dnfChanges(dnf, today);
+      Object.assign(payload, found.changes);
+      Object.assign(problems, found.problems);
+    }
+    setClientErrors(problems);
+    if (Object.keys(problems).length) {
       focusInvalid();
       return;
     }
-    const payload: AddToShelfPayload = { ...bookReference(result), status };
-    // A blank date is left out, so the API's "today" default applies (T-8).
-    if (status === 'finished' && finishedOn) payload.finished_at = finishedOn;
 
     // mutateAsync, not mutate callbacks: on the book page this form unmounts as soon as
     // the entry exists, and TanStack skips per-call callbacks after unmount.
@@ -75,12 +88,14 @@ export function AddToShelfForm({ result, onAdded }: AddToShelfFormProps) {
   }
 
   const error = add.isError && conflictId(add.error) === null ? add.error : null;
-  const serverDateError = error ? fieldErrors(error).finished_at : undefined;
-  const message = error ? formError(error) : null;
+  const serverFields = error ? fieldErrors(error) : {};
+  const errors: Record<string, string | undefined> = { ...serverFields, ...clientErrors };
+  const fieldsCoverIt = FIELDS.some((field) => serverFields[field]);
+  const message = error && !fieldsCoverIt ? formError(error) : null;
   const statusId = `${id}-status`;
   const dateId = `${id}-date`;
-  const dateErrorId = `${id}-date-error`;
-  const shownDateError = dateError ?? serverDateError;
+  const dateErrorId = `${id}-finished_at-error`;
+  const shownDateError = errors.finished_at;
 
   return (
     <form ref={ref} className="add-to-shelf" onSubmit={handleSubmit} noValidate>
@@ -90,7 +105,10 @@ export function AddToShelfForm({ result, onAdded }: AddToShelfFormProps) {
       <select
         id={statusId}
         value={status}
-        onChange={(event) => setStatus(event.target.value as ShelfStatus)}
+        onChange={(event) => {
+          setStatus(event.target.value as ShelfStatus);
+          setClientErrors({});
+        }}
         disabled={add.isPending}
       >
         {ADDABLE.map((value) => (
@@ -116,13 +134,26 @@ export function AddToShelfForm({ result, onAdded }: AddToShelfFormProps) {
           />
         </span>
       ) : null}
-      <button type="submit">{add.isPending ? 'Adding…' : 'Add'}</button>
       {shownDateError ? (
         <p id={dateErrorId} className="field-error">
           {shownDateError}
         </p>
       ) : null}
-      {message && !serverDateError ? (
+      {status === 'dnf' ? (
+        <div className="add-to-shelf-dnf">
+          <DnfFields
+            idPrefix={id}
+            values={dnf}
+            onChange={setDnf}
+            errors={errors}
+            today={today}
+            pageCount={null}
+            disabled={add.isPending}
+          />
+        </div>
+      ) : null}
+      <button type="submit">{add.isPending ? 'Adding…' : 'Add'}</button>
+      {message ? (
         <p className="field-error" role="alert">
           {message}
         </p>

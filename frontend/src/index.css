@@ -343,6 +343,13 @@ button:disabled {
   flex-basis: 100%;
 }
 
+/* DNF fields when adding from search: stacked, full width, then the Add button. */
+.add-to-shelf-dnf {
+  flex-basis: 100%;
+  display: grid;
+  gap: 0.5rem;
+}
+
 .finished-on {
   display: inline-flex;
   align-items: center;
