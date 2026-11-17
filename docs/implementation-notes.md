@@ -211,6 +211,22 @@ Response: `{year, totals: {pages, finished, dnf, average_rating}, pages_per_mont
 - **Cold starts:** `trackRequest()` marks any request pending for 3+ seconds. `ServerWakingBanner` sits outside the routes, so it also shows **on `/login` and while a stored session is restored**: "Waking up the server — this can take up to a minute." Requests time out after 90 seconds.
 - **Data loading:** TanStack Query. 4xx responses are never retried, network errors and 5xx are retried once, and data is fresh for 30 seconds. Tests mock the API with MSW, and any request without a handler fails the test.
 
+## Dashboard (built Nov 16, 2026)
+
+- **Layout:** **"Log today's pages" comes first**, because it's the daily action and it's what a phone shows above the fold. Then the year picker, the totals and the four T-5 charts.
+- **Phone-first:** the cards are full width (2 columns from 48rem), and inputs are 16px (so iOS doesn't zoom) with `inputMode="numeric"` and 44px touch targets.
+- **Quick log** (one card per book on Reading):
+  - shows "Today: N pages", from `GET /api/logs/?from=<today>&to=<today>`
+  - type a number and press Enter; the date is always today
+  - the input **clears after a successful log**
+  - logging the same day again adds to it, and progress and "Today" update
+  - past days are logged on the book page
+- **Charts:** Chart.js through react-chartjs-2, **lazy-loaded** (`DashboardCharts` chunk, about 55 KB gzipped), so other pages never download it. The build confirms the main bundle doesn't contain it.
+  - **Colors:** the dataviz skill's reference palette, slots 1–2. Blue is finished/read and orange is DNF, stored as CSS tokens `--series-1` and `--series-2` with their own light and dark steps. Both pairs were validated against our surfaces (`#ffffff` and `#1c1917`): color-blind ΔE 24.7 light and 26.8 dark, both ≥ 3:1 contrast. Chart.js reads the tokens at render time and again when the system theme changes.
+  - **Marks:** bars at most 24px thick, a 4px rounded data end (only the outermost segment of a stack), a 2px surface-colored gap between stacked segments, hairline grids, one tooltip covering every series, a legend for two series and none for one.
+  - **Text alternatives:** each chart is a `<figure>` with a written summary (`charts/summaries.ts`) as its caption and as the canvas's label, plus a "Show the numbers" table. Empty data shows a message instead of empty axes.
+- **Year picker:** `?year=` in the URL, defaulting to this year. It offers the years in `books_per_year` plus the current year. The previous year's numbers stay on screen while a new year loads.
+
 ## Phase 5 backlog
 
 Everything deferred so far, in one place, to pick up in Phase 5 (polish) or sooner if it becomes urgent. Each item links back to where it was decided.
