@@ -44,6 +44,9 @@ All endpoints are under `/api/` and return JSON. Authenticated endpoints expect 
 | GET | `/api/shelf/?status=&book=&ordering=` | token | Your shelf, paginated, with pages logged per book |
 | POST | `/api/shelf/` | token | Add `book_id` (or `source` + `source_id`) with an optional status; 409 if already shelved |
 | GET / PATCH / DELETE | `/api/shelf/{id}/` | token | One entry: change status, rate, review or mark DNF; DELETE also removes its reading logs |
+| GET | `/api/logs/?book=&from=&to=` | token | Your page logs, newest day first |
+| POST | `/api/logs/` | token | Log `pages_read` for `book_id` (today by default); a second log the same day adds to it |
+| GET / PATCH / DELETE | `/api/logs/{id}/` | token | One log; PATCH sets the day's total or moves it to another day |
 
 Book data comes from [Google Books](https://books.google.com) and [Open Library](https://openlibrary.org). Search responses name their `source`, so the UI can show the right attribution.
 

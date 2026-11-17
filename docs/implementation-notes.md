@@ -130,7 +130,9 @@ All are under `/api/logs/`, all require login, and all are filtered to `request.
 | PATCH | `/api/logs/{id}/` `{pages_read?, log_date?}` | **Sets** the day's total, or moves the log to another day |
 | DELETE | `/api/logs/{id}/` | 204. Shelf status and dates are unchanged |
 
-**Responses** include the log plus a short shelf entry, `{id, status, started_at, pages_logged}`, so the UI can update progress without a second request.
+**Responses** to POST and PATCH include the log plus a short shelf entry, `shelf_entry: {id, status, started_at, pages_logged}`, so the UI can update progress and show "moved to Reading" without a second request. `shelf_entry` is null for a log with no shelf entry, which can only happen for logs created in the admin. GET responses return the log fields only.
+
+**Errors** come back as 400 `{field: [message]}`. When a PATCH tries to move a log onto a taken day, the response also has `conflict_id`, the other log's `id` **as an integer**. That response is built directly, because DRF's `ValidationError` would turn it into a string.
 
 ### Rules
 
