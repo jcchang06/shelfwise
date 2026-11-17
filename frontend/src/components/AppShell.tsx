@@ -16,6 +16,7 @@ export function AppShell() {
             Shelfwise
           </NavLink>
           <NavLink to="/dashboard">Dashboard</NavLink>
+          <NavLink to="/shelf">Shelf</NavLink>
           <NavLink to="/search">Search</NavLink>
         </nav>
         <div className="app-user">

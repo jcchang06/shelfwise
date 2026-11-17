@@ -13,3 +13,23 @@ export function localDateISO(date: Date = new Date()): string {
 export function yearOf(partialDate: string): string {
   return partialDate.slice(0, 4);
 }
+
+const DATE_FORMAT = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  timeZone: 'UTC',
+});
+
+/**
+ * "2025-03-09" -> "Mar 9, 2025". Parsed and formatted as UTC so a date-only value never
+ * shifts a day in the browser's time zone.
+ */
+export function formatDate(isoDate: string): string {
+  return DATE_FORMAT.format(new Date(`${isoDate}T00:00:00Z`));
+}
+
+/** A timestamp ("2026-11-16T20:15:00Z") as the reader's local calendar day. */
+export function formatTimestampDate(isoTimestamp: string): string {
+  return formatDate(localDateISO(new Date(isoTimestamp)));
+}

@@ -2,18 +2,27 @@ import { useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-
 
 import { addToShelf, type AddToShelfPayload } from '../api/shelf';
 import type { SearchResponse, SearchResult, ShelfEntry } from '../api/types';
+import { shelfEntryKey } from './useShelf';
+
+function isSameBook(result: SearchResult, payload: AddToShelfPayload, entry: ShelfEntry) {
+  if (result.book_id !== null && result.book_id === entry.book.id) return true;
+  return (
+    'source' in payload &&
+    result.source === payload.source &&
+    result.source_id === payload.source_id
+  );
+}
 
 /**
- * Adds a search result to the shelf. On success the result is updated in every cached
- * search (book_id + shelf), so it shows "On your shelf" without refetching; shelf and
- * stats queries are invalidated for when those pages exist.
+ * Adds a book to the shelf, from search or the book page. On success the book is updated
+ * in every cached search (book_id + shelf) so it shows "On your shelf" without
+ * refetching, the book page's entry is set, and shelf lists and stats are refreshed.
  */
 export function useAddToShelf() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ payload }: { result: SearchResult; payload: AddToShelfPayload }) =>
-      addToShelf(payload),
-    onSuccess: (entry: ShelfEntry, { result }) => {
+    mutationFn: (payload: AddToShelfPayload) => addToShelf(payload),
+    onSuccess: (entry, payload) => {
       queryClient.setQueriesData<InfiniteData<SearchResponse>>({ queryKey: ['search'] }, (data) =>
         data
           ? {
@@ -21,7 +30,7 @@ export function useAddToShelf() {
               pages: data.pages.map((page) => ({
                 ...page,
                 results: page.results.map((r) =>
-                  r.source === result.source && r.source_id === result.source_id
+                  isSameBook(r, payload, entry)
                     ? {
                         ...r,
                         book_id: entry.book.id,
@@ -33,7 +42,8 @@ export function useAddToShelf() {
             }
           : data,
       );
-      void queryClient.invalidateQueries({ queryKey: ['shelf'] });
+      queryClient.setQueryData(shelfEntryKey(entry.book.id), entry);
+      void queryClient.invalidateQueries({ queryKey: ['shelf', 'list'] });
       void queryClient.invalidateQueries({ queryKey: ['stats'] });
     },
   });

@@ -217,6 +217,10 @@ describe('adding to the shelf', () => {
     );
     renderApp('/search?q=hail');
     const item = await screen.findByText('On your shelf · Reading');
+    expect(screen.getByRole('link', { name: 'On your shelf · Reading' })).toHaveAttribute(
+      'href',
+      '/books/42',
+    );
     expect(
       within(item.closest('li') as HTMLElement).queryByRole('button', { name: 'Add' }),
     ).toBeNull();

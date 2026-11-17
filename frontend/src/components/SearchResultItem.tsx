@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom';
+
 import { sourcePageUrl } from '../api/books';
 import { SHELF_STATUS_LABELS, type SearchResult } from '../api/types';
 import { yearOf } from '../dates';
@@ -33,8 +35,12 @@ export function SearchResultItem({ result, onAdded }: SearchResultItemProps) {
             <span className="visually-hidden">: {result.title} (opens in a new tab)</span>
           </a>
         </p>
-        {result.shelf ? (
-          <p className="shelf-badge">On your shelf · {SHELF_STATUS_LABELS[result.shelf.status]}</p>
+        {result.shelf && result.book_id !== null ? (
+          <p className="shelf-badge">
+            <Link to={`/books/${result.book_id}`}>
+              On your shelf · {SHELF_STATUS_LABELS[result.shelf.status]}
+            </Link>
+          </p>
         ) : (
           <AddToShelfForm result={result} onAdded={onAdded} />
         )}
