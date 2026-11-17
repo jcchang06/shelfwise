@@ -1,7 +1,11 @@
 """Build the catalog seed (C-3) from Open Library dumps. Reads the database (catalog for
-duplicates, shelf entries for the reader's genres) but never writes to it: the whole build
-runs in a READ ONLY transaction, so a write would fail. Loading the file is seed_catalog's
-job. The first line printed is the database (dbinfo), so you can see where it reads.
+duplicates, shelf entries for the reader's genres) but never writes to it:
+
+- The connection is READ ONLY for the whole command (read_only_database), so a write fails.
+- Everything is read up front in one short transaction, then the connection is closed
+  before the ~6 minutes of dump and API work (Neon ends sessions idle in a transaction).
+
+Loading the file is seed_catalog's job. The first line printed is the database (dbinfo).
 
     # dumps from https://openlibrary.org/developers/dumps in backend/dumps/ (gitignored):
     # ol_dump_reading-log_*.txt.gz, ol_dump_ratings_*.txt.gz (optional),
@@ -19,8 +23,8 @@ from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 
 from catalog.seed import dumps
-from catalog.seed.build import MIN_DESCRIPTION_CHARS, build_seed, taste_genres, write_seed
-from catalog.seed.readonly import read_only_transaction
+from catalog.seed.build import MIN_DESCRIPTION_CHARS, build_seed, read_snapshot, write_seed
+from catalog.seed.readonly import read_only_database, release_connection
 from catalog.services.types import BookSourceError
 
 
@@ -44,13 +48,15 @@ class Command(BaseCommand):
     def handle(self, *args, dumps_dir: Path, out: Path, target, candidates, show_genres, **opts):
         call_command("dbinfo", stdout=self.stdout)
         try:
-            with read_only_transaction():
-                genres = taste_genres()
+            with read_only_database():
+                snapshot = read_snapshot()
+                release_connection()  # the build below never touches the database
                 books, report = build_seed(
-                    dumps_dir, target, candidates, genres, progress=self.stdout.write
+                    dumps_dir, target, candidates, snapshot, progress=self.stdout.write
                 )
         except (dumps.DumpError, BookSourceError) as exc:
             raise CommandError(str(exc)) from exc
+        genres = snapshot.genres
         write_seed(out, books)
 
         out_ = self.stdout.write
@@ -76,6 +82,17 @@ class Command(BaseCommand):
         out_(f"  popular:  {r.pools.get('popular', 0)}")
         out_(f"  my genres ({r.taste_genres} genres): {r.pools.get('taste', 0)}")
         out_(f"  recent (first published {r.recent_from_year}+): {r.pools.get('recent', 0)}")
+        if r.lookup_failed:
+            out_(
+                self.style.WARNING(
+                    f"  {r.lookup_failed} works dropped: their year/language lookup kept "
+                    "failing (Open Library unreachable). Re-run to include them."
+                )
+            )
+        if r.recent_list_failed:
+            out_(
+                self.style.WARNING("  The recent-works list couldn't be fetched from Open Library.")
+            )
         for pool, missing in r.shortfalls.items():
             out_(self.style.WARNING(f"  short by {missing} in '{pool}' (filled from popular)"))
         out_(f"Written to {out}")
