@@ -5,6 +5,8 @@ import { AppShell } from './components/AppShell';
 import { ServerWakingBanner } from './components/ServerWakingBanner';
 import BookPage from './pages/BookPage';
 import DashboardPage from './pages/DashboardPage';
+import ImportDetailPage from './pages/ImportDetailPage';
+import ImportPage from './pages/ImportPage';
 import LoginPage from './pages/LoginPage';
 import NotFoundPage from './pages/NotFoundPage';
 import SearchPage from './pages/SearchPage';
@@ -24,6 +26,8 @@ export default function App() {
             <Route path="/search" element={<SearchPage />} />
             <Route path="/shelf" element={<ShelfPage />} />
             <Route path="/books/:id" element={<BookPage />} />
+            <Route path="/import" element={<ImportPage />} />
+            <Route path="/import/:id" element={<ImportDetailPage />} />
           </Route>
         </Route>
         <Route path="*" element={<NotFoundPage />} />

@@ -60,7 +60,9 @@ export function setSessionExpiredHandler(handler: (() => void) | null): void {
 async function rawFetch<T>(path: string, init: RequestInit, timeoutMs: number): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set('Accept', 'application/json');
-  if (init.body !== undefined && !headers.has('Content-Type')) {
+  // FormData (file uploads) must not get a Content-Type here: the browser sets
+  // multipart/form-data with the boundary itself.
+  if (init.body !== undefined && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
 
@@ -191,4 +193,9 @@ export interface HealthResponse {
 
 export function getHealth(): Promise<HealthResponse> {
   return apiGet<HealthResponse>('/health/', { auth: false });
+}
+
+/** POST a FormData body (multipart file upload). */
+export function apiPostForm<T>(path: string, form: FormData, options?: RequestOptions): Promise<T> {
+  return apiFetch<T>(path, { method: 'POST', body: form }, options);
 }

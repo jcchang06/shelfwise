@@ -18,6 +18,7 @@ export function AppShell() {
           <NavLink to="/dashboard">Dashboard</NavLink>
           <NavLink to="/shelf">Shelf</NavLink>
           <NavLink to="/search">Search</NavLink>
+          <NavLink to="/import">Import</NavLink>
         </nav>
         <div className="app-user">
           {user ? <span className="app-user-email">{user.email}</span> : null}
