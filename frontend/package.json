@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc -b",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "dev:live": "VITE_API_BASE_URL=https://shelfwise-api-et8p.onrender.com/api vite"
   },
   "dependencies": {
     "@tanstack/react-query": "5.107.1",
