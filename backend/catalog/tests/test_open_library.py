@@ -241,3 +241,55 @@ class TestRecordedIsbnPreference:
         settings.BOOK_SEARCH_LANGUAGE = "es"
         result = open_library.parse_search_doc(self.doc())
         assert result is not None and result.isbn_13 == "9788418037016"
+
+
+def test_popular_recent_work_keys_pages_through_results(mocked, monkeypatch):
+    monkeypatch.setattr(open_library, "RECENT_PAGE_SIZE", 2)
+    base = {
+        "q": "first_publish_year:[2024 TO 2026] language:eng",
+        "sort": "readinglog",
+        "fields": "key,readinglog_count",
+    }
+    mocked.get(
+        OL_SEARCH,
+        json={"docs": [{"key": "/works/OL1W", "readinglog_count": 9}, {"key": "/works/OL2W"}]},
+        match=[matchers.query_param_matcher({**base, "limit": "2", "page": "1"})],
+    )
+    mocked.get(
+        OL_SEARCH,
+        json={"docs": [{"key": "/works/OL3W", "readinglog_count": 4}]},
+        match=[matchers.query_param_matcher({**base, "limit": "1", "page": "2"})],
+    )
+    assert open_library.popular_recent_work_keys(2024, 2026, 3) == {
+        "OL1W": 9,
+        "OL2W": 0,
+        "OL3W": 4,
+    }
+
+
+def test_work_details_batches(mocked):
+    mocked.get(
+        OL_SEARCH,
+        json={
+            "docs": [
+                {
+                    "key": "/works/OL1W",
+                    "first_publish_year": 2019,
+                    "number_of_pages_median": 320,
+                    "isbn": ["9780593135204"],
+                    "language": ["eng"],
+                }
+            ]
+        },
+        match=[matchers.query_param_matcher(open_library.work_details_params(["OL1W", "OL2W"]))],
+    )
+    assert open_library.work_details(["OL1W", "OL2W"]) == {
+        "OL1W": {
+            "first_publish_year": 2019,
+            "page_count": 320,
+            "isbn_13": "9780593135204",
+            "languages": ("eng",),
+        }
+    }
+    with pytest.raises(ValueError, match="At most"):
+        open_library.work_details(["OL1W"] * (open_library.WORK_BATCH_SIZE + 1))

@@ -416,6 +416,33 @@ Running it on your real export (433 rows) turned up four problems, now fixed:
 - **Loading** says the first look can take a few seconds, since a first view waits on Open Library.
 - **Author links** (`AuthorNames`) on search results, the book page and shelf rows. A search result's author without a catalog id stays plain text (decision 3). Meta lines are built with `MetaParts` (" · " between parts), so they can hold links.
 
+## C-3: Catalog seed, building the seed file (Phase 3, seed PR 1)
+
+`catalog/seed/` and `build_catalog_seed --dumps DIR --out FILE [--target 10000] [--candidates 60000] [--show-genres]`. It reads the database but never writes to it; `seed_catalog` (seed PR 2) loads the file.
+
+**Decisions** (Nov 17, 2026): run locally and load Neon from the shell; 10,000 books for now, revisited after R-1's timing; no editions dump; only books with a description of 200+ characters and at least one genre.
+
+- **Dumps** from https://openlibrary.org/developers/dumps, in a gitignored `backend/dumps/`: reading-log (125 MB), ratings (9 MB, optional), works (4.1 GB), authors (0.8 GB). The 12.6 GB editions dump isn't used; the search API supplies what it would add.
+- **Popularity:** readers per work in the reading log (Want to Read, Currently Reading, Already Read; **not Stopped Reading**, which is a DNF). Ratings count breaks ties.
+- **Candidates:** the 60,000 most popular works not already in the catalog, plus up to 15,000 of the most-read works first published in the last 3 years, from the search API (`first_publish_year:[from TO to] language:eng`, `sort=readinglog`, 1,000 per request). The dump's reading log is thin on new books: only 183 of the top 60,000 were eligible and recent.
+- **Works dump:** lines are filtered by key before any JSON is parsed; keys are held as integers. Descriptions are Open Library Markdown, so the trailing link sections ("----------", "Contains:", "Also contained in:", also without a separator), reference links, escaped dividers and link syntax (link text kept, even with brackets inside) are removed before the usual HTML cleanup. Genres come from subjects through the same noise filter as saves.
+- **Search API, 100 works per request:** first publish year, median pages, ISBN-13 (English prefixes first) and languages. A work needs an edition in `BOOK_SEARCH_LANGUAGE` (`eng`). 3 attempts per batch, 5s and 15s apart; a batch that still fails stops the build, since silently dropping popular works would skew the seed.
+- **Duplicates:** skipped when a catalog book has the same work key, the same ISBN-13, or the same normalized title + first author (the `merge_duplicate_books` rule). Within the seed, the most popular copy of a title + author is kept.
+- **Pools, in this order** (Nov 17, 2026 adjustments):
+  1. **Recent, 10%:** first published this year or in the two before it (2024+ in 2026).
+  2. **My genres, 30%:** sharing a genre with the top 10 genres of finished and reading shelf entries rated 3+ or unrated, never DNF (not the whole catalog, which also holds searched-but-unshelved books). `STATS_EXCLUDED_GENRES` (Fiction, Nonfiction) are left out, since they match nearly everything. Ties are broken A-Z.
+  3. **Popular:** the rest.
+  A short pool's share goes to popular, and the summary says by how much.
+- **Run it against the database the seed is for** (`dbinfo` first): the genres come from that database's shelf entries, and duplicates are checked against its catalog. Output is counts only; `--show-genres` prints the genres for local use.
+- **Neon storage:** the free plan is **1 GB per project** (Neon changelog, Oct 2, 2026; it was 0.5 GB). The seed file is 4.7 MB gzipped; loaded, it should be well under 100 MB.
+
+**First local run** (2026-10-31 dumps, local database, which has almost no shelf entries):
+
+- 6 minutes, about 770 MB of memory. 3,373,386 works in the reading log; 74,620 candidates (14,620 recent, from search); 27,482 eligible.
+- Dropped: 43,102 with a description under 200 characters, 2,076 with no usable genres, 1,044 not in the works dump, 467 with no English edition, 364 duplicates within the seed, 49 already in the catalog (plus 104 skipped by work key), 21 with no author, 15 not found by search.
+- **Seed: 10,000 books: 9,098 popular, 902 recent (98 short), 0 my genres** (3,000 short: the local database has no qualifying shelf entries; the real build runs against Neon).
+- Fields: ISBN-13 on 9,926, page count on 9,781, cover on 9,207, year on 9,998. Median description 670 characters; no Markdown links or dividers left. 7,219 distinct authors.
+
 ## Phase 5 backlog
 
 Everything deferred so far, in one place, to pick up in Phase 5 (polish) or sooner if it becomes urgent. Each item links back to where it was decided.

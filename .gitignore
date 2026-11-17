@@ -38,3 +38,6 @@ backend/catalog/tests/fixtures/raw/
 # A real export (goodreads_library_export.csv) stays ignored even inside fixtures/.
 !backend/imports/tests/fixtures/synthetic_*.csv
 media/
+
+# Open Library data dumps for build_catalog_seed (C-3): large, downloaded, never committed
+/backend/dumps/
