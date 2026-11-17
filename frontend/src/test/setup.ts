@@ -18,3 +18,15 @@ afterEach(() => {
 });
 
 afterAll(() => server.close());
+
+// jsdom doesn't implement <dialog> modality. A minimal stand-in so ConfirmDialog can open
+// and close in tests (real browsers handle focus trapping and inertness themselves).
+if (typeof HTMLDialogElement !== 'undefined' && !HTMLDialogElement.prototype.showModal) {
+  HTMLDialogElement.prototype.showModal = function showModal(this: HTMLDialogElement) {
+    this.setAttribute('open', '');
+  };
+  HTMLDialogElement.prototype.close = function close(this: HTMLDialogElement) {
+    this.removeAttribute('open');
+    this.dispatchEvent(new Event('close'));
+  };
+}

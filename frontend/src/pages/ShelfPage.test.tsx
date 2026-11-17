@@ -1,0 +1,163 @@
+import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { http, HttpResponse } from 'msw';
+import { describe, expect, it } from 'vitest';
+
+import { setRefreshToken } from '../api/tokens';
+import type { ShelfEntry } from '../api/types';
+import { page, shelfEntry } from '../test/fixtures';
+import { renderApp } from '../test/renderApp';
+import { api, authHandlers, server } from '../test/server';
+
+/** Logged in; GET /api/shelf/ answered by `respond`. Returns the requested URLs. */
+function setup(respond: (url: URL) => ShelfEntry[] | Response) {
+  setRefreshToken('refresh-1');
+  const requests: URL[] = [];
+  server.use(
+    ...authHandlers(),
+    http.get(api('/shelf/'), ({ request }) => {
+      const url = new URL(request.url);
+      requests.push(url);
+      const result = respond(url);
+      return result instanceof Response ? result : HttpResponse.json(page(result));
+    }),
+  );
+  return requests;
+}
+
+const row = (title: string) =>
+  screen.getByRole('link', { name: title }).closest('li') as HTMLElement;
+
+describe('shelf page', () => {
+  it('opens on Reading, sorted by recently updated, with links to each book', async () => {
+    const requests = setup(() => [shelfEntry({ status: 'reading' })]);
+    renderApp('/shelf');
+
+    expect(await screen.findByRole('link', { name: 'Project Hail Mary' })).toHaveAttribute(
+      'href',
+      '/books/42',
+    );
+    expect(requests[0].searchParams.get('status')).toBe('reading');
+    expect(requests[0].searchParams.get('ordering')).toBe('-updated_at');
+    const shelves = screen.getByRole('navigation', { name: 'Shelves' });
+    expect(within(shelves).getByRole('link', { name: 'Reading' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(screen.getByText('Andy Weir')).toBeInTheDocument();
+  });
+
+  it('shows reading progress', async () => {
+    setup(() => [shelfEntry({ status: 'reading', pages_logged: 120 })]);
+    renderApp('/shelf');
+    expect(await screen.findByText('120 of 496 pages (24%)')).toBeInTheDocument();
+    const bar = screen.getByRole('progressbar', { name: 'Reading progress' });
+    expect(bar).toHaveAttribute('value', '120');
+    expect(bar).toHaveAttribute('max', '496');
+  });
+
+  it('caps the bar at 100% when more pages are logged than the book has', async () => {
+    setup(() => [shelfEntry({ status: 'reading', pages_logged: 512 })]);
+    renderApp('/shelf');
+    expect(await screen.findByText('512 of 496 pages (100%)')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar')).toHaveAttribute('value', '496');
+  });
+
+  it('shows pages logged when the page count is unknown', async () => {
+    setup(() => [
+      shelfEntry({
+        status: 'reading',
+        pages_logged: 120,
+        book: { ...shelfEntry().book, page_count: null },
+      }),
+    ]);
+    renderApp('/shelf');
+    expect(await screen.findByText('120 pages logged')).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [
+      'finished',
+      shelfEntry({ status: 'finished', finished_at: '2025-03-09', rating: 4 }),
+      /Finished Mar 9, 2025/,
+    ],
+    [
+      'dnf',
+      shelfEntry({ status: 'dnf', dnf_page: 120, dnf_reason: 'pacing' }),
+      /Stopped at page 120 · Pacing/,
+    ],
+    ['want_to_read', shelfEntry({ status: 'want_to_read' }), /Added Nov 16, 2026/],
+  ])('shows the %s line', async (status, entry, line) => {
+    setup(() => [entry]);
+    renderApp(`/shelf?status=${status}`);
+    await screen.findByRole('link', { name: 'Project Hail Mary' });
+    expect(within(row('Project Hail Mary')).getByText(line)).toBeInTheDocument();
+    if (status === 'finished') {
+      expect(screen.getByRole('img', { name: '4 out of 5 stars' })).toHaveTextContent('★★★★☆');
+    }
+  });
+
+  it('switches shelves and sort order through the URL', async () => {
+    const requests = setup(() => [shelfEntry({ status: 'finished' })]);
+    renderApp('/shelf');
+    await screen.findByRole('link', { name: 'Project Hail Mary' });
+    const user = userEvent.setup();
+
+    await user.click(
+      within(screen.getByRole('navigation', { name: 'Shelves' })).getByRole('link', {
+        name: 'Finished',
+      }),
+    );
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Sort by' }), 'title');
+    await screen.findByRole('link', { name: 'Project Hail Mary' });
+
+    const last = requests[requests.length - 1];
+    expect(last.searchParams.get('status')).toBe('finished');
+    expect(last.searchParams.get('ordering')).toBe('title');
+    expect(
+      within(screen.getByRole('navigation', { name: 'Shelves' })).getByRole('link', {
+        name: 'Finished',
+      }),
+    ).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('shows an empty state with a link to search', async () => {
+    setup(() => []);
+    renderApp('/shelf?status=dnf');
+    expect(await screen.findByText(/No books marked DNF/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Find a book' })).toHaveAttribute('href', '/search');
+  });
+
+  it('loads more', async () => {
+    const requests = setup((url) =>
+      url.searchParams.get('page') === '2'
+        ? HttpResponse.json(
+            page([
+              shelfEntry({
+                id: 8,
+                status: 'reading',
+                book: { ...shelfEntry().book, id: 43, title: 'Artemis' },
+              }),
+            ]),
+          )
+        : HttpResponse.json(
+            page([shelfEntry({ status: 'reading' })], 'http://x/api/shelf/?page=2'),
+          ),
+    );
+    renderApp('/shelf');
+    await screen.findByRole('link', { name: 'Project Hail Mary' });
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Load more' }));
+
+    expect(await screen.findByRole('link', { name: 'Artemis' })).toBeInTheDocument();
+    expect(requests.map((u) => u.searchParams.get('page'))).toEqual(['1', '2']);
+  });
+
+  it('has a Shelf link in the main navigation', async () => {
+    setup(() => []);
+    renderApp('/shelf');
+    const nav = await screen.findByRole('navigation', { name: 'Main' });
+    expect(within(nav).getByRole('link', { name: 'Shelf' })).toHaveAttribute('href', '/shelf');
+  });
+});
