@@ -21,6 +21,10 @@ ignore = []
 DJANGO_SETTINGS_MODULE = "config.settings"
 python_files = ["test_*.py"]
 addopts = "--reuse-db --cov --cov-report=term-missing:skip-covered"
+filterwarnings = [
+  # whitenoise warns that STATIC_ROOT is missing; tests never run collectstatic.
+  "ignore:No directory at:UserWarning",
+]
 
 [tool.coverage.run]
 source = ["."]

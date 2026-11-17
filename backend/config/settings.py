@@ -15,11 +15,25 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 env = environ.Env()
 # A local .env is optional (docker-compose passes env vars directly; CI and Render set them).
-environ.Env.read_env(BASE_DIR.parent / ".env", overwrite=False)
+# overwrite=False: a variable already in the process environment WINS over .env, so
+# `export DATABASE_URL=<neon>` points manage.py at Neon even with a local .env present.
+# (django-environ uses os.environ.setdefault; proven by config/tests/test_settings_env.py.)
+# DJANGO_ENV_FILE exists so that test can supply its own file.
+ENV_FILE = Path(env.str("DJANGO_ENV_FILE", default=str(BASE_DIR.parent / ".env")))
+environ.Env.read_env(ENV_FILE, overwrite=False)
 
 SECRET_KEY = env("DJANGO_SECRET_KEY")
 DEBUG = env.bool("DJANGO_DEBUG", default=False)
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
+CSRF_TRUSTED_ORIGINS: list[str] = []
+
+# Render sets this to the service's public hostname (e.g. shelfwise-api.onrender.com),
+# so production never needs the hostname typed into an env var.
+RENDER_EXTERNAL_HOSTNAME = env.str("RENDER_EXTERNAL_HOSTNAME", default="")
+if RENDER_EXTERNAL_HOSTNAME:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
+    # The admin login POSTs over HTTPS behind Render's proxy; Django checks the Origin.
+    CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_EXTERNAL_HOSTNAME}")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -39,6 +53,9 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # Serves collectstatic output (the admin's CSS/JS) when DEBUG is off; Render has no
+    # separate static file server for a Python service.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -97,6 +114,11 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    # Compressed, content-hashed files so browsers can cache them forever.
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+}
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -178,5 +200,25 @@ MAX_PAGES_PER_DAY = env.int("MAX_PAGES_PER_DAY", default=2000)
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")  # Render terminates TLS
     SECURE_SSL_REDIRECT = env.bool("DJANGO_SECURE_SSL_REDIRECT", default=True)
+    # Render health-checks over plain HTTP (Host = the onrender.com hostname). It accepts
+    # 3xx too, but a direct 200 keeps the check simple to read in its logs.
+    SECURE_REDIRECT_EXEMPT = [r"^api/health/$"]
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+    # Start HSTS at one day; raise it once production is known-good. No subdomains or
+    # preload: onrender.com is a shared domain.
+    SECURE_HSTS_SECONDS = env.int("DJANGO_HSTS_SECONDS", default=86400)
+    # Deliberately off for the reason above, so `check --deploy` can fail CI on anything else.
+    SILENCED_SYSTEM_CHECKS = ["security.W005", "security.W021"]
+
+# Send errors to stdout/stderr so they show up in Render's logs. With DEBUG off, Django's
+# default is to email them to ADMINS, which isn't configured.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "root": {"handlers": ["console"], "level": env.str("LOG_LEVEL", default="INFO")},
+    "loggers": {
+        "django": {"handlers": ["console"], "level": "INFO", "propagate": False},
+    },
+}

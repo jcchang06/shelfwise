@@ -54,6 +54,14 @@ jobs:
       - run: ruff format --check .
       - run: python manage.py makemigrations --check --dry-run # fail if a model change has no migration
       - run: pytest --create-db
+      # Production-like settings must pass Django's deployment checklist. Fails on any
+      # warning except the two silenced on purpose in settings.py.
+      - name: Django deploy checks
+        run: python manage.py check --deploy --fail-level WARNING
+        env:
+          DJANGO_DEBUG: "false"
+          DJANGO_SECRET_KEY: ci-deploy-check-${{ github.run_id }}-not-a-real-secret-0123456789abcdef
+          RENDER_EXTERNAL_HOSTNAME: shelfwise-api.onrender.com
 
   frontend:
     name: Frontend (eslint + vitest + build)
