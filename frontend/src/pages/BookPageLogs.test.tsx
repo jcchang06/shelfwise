@@ -106,15 +106,15 @@ describe('logging pages', () => {
     renderApp('/books/42');
     const user = userEvent.setup();
     await screen.findByRole('form', { name: 'Log pages' });
-    expect(within(logForm()).getByLabelText('Date')).toHaveValue(localDateISO());
+    expect(within(logForm()).getByLabelText('Date (optional)')).toHaveValue(localDateISO());
 
-    await user.type(within(logForm()).getByLabelText('Pages read'), '25');
+    await user.type(within(logForm()).getByLabelText('Pages read (required)'), '25');
     await user.click(within(logForm()).getByRole('button', { name: 'Log' }));
 
     expect(await screen.findByText(/^Logged 25 pages for /)).toBeInTheDocument();
     expect(calls.posts).toEqual([{ book_id: 42, pages_read: 25, log_date: localDateISO() }]);
     expect(await within(logList()).findByText('25 pages')).toBeInTheDocument();
-    expect(within(logForm()).getByLabelText('Pages read')).toHaveValue(null); // cleared
+    expect(within(logForm()).getByLabelText('Pages read (required)')).toHaveValue(null); // cleared
   });
 
   it('adds to a day that already has a log', async () => {
@@ -125,10 +125,10 @@ describe('logging pages', () => {
     renderApp('/books/42');
     const user = userEvent.setup();
     await screen.findByRole('form', { name: 'Log pages' });
-    const date = within(logForm()).getByLabelText('Date');
+    const date = within(logForm()).getByLabelText('Date (optional)');
     await user.clear(date);
     await user.type(date, '2026-11-03');
-    await user.type(within(logForm()).getByLabelText('Pages read'), '12');
+    await user.type(within(logForm()).getByLabelText('Pages read (required)'), '12');
     await user.click(within(logForm()).getByRole('button', { name: 'Log' }));
 
     expect(await screen.findByText('Added 12 to Nov 3, 2026 (now 42 pages).')).toBeInTheDocument();
@@ -140,14 +140,13 @@ describe('logging pages', () => {
     renderApp('/books/42');
     const user = userEvent.setup();
     await screen.findByRole('form', { name: 'Log pages' });
-    await user.type(within(logForm()).getByLabelText('Pages read'), '10');
+    await user.type(within(logForm()).getByLabelText('Pages read (required)'), '10');
     await user.click(within(logForm()).getByRole('button', { name: 'Log' }));
 
     expect(await screen.findByText(/Moved to Reading\.$/)).toBeInTheDocument();
     expect(await screen.findByText('On your shelf · Reading')).toBeInTheDocument();
     // The status form re-keyed to the new status rather than showing a stale choice.
     expect(screen.getByRole('combobox', { name: 'Shelf' })).toHaveValue('reading');
-    expect(screen.getByRole('button', { name: 'Save status' })).toBeDisabled();
   });
 
   it('updates reading progress', async () => {
@@ -158,7 +157,7 @@ describe('logging pages', () => {
     renderApp('/books/42');
     expect(await screen.findByText('100 of 496 pages (20%)')).toBeInTheDocument();
     const user = userEvent.setup();
-    await user.type(within(logForm()).getByLabelText('Pages read'), '24');
+    await user.type(within(logForm()).getByLabelText('Pages read (required)'), '24');
     await user.click(within(logForm()).getByRole('button', { name: 'Log' }));
     expect(await screen.findByText('124 of 496 pages (25%)')).toBeInTheDocument();
   });
@@ -172,11 +171,27 @@ describe('logging pages', () => {
     renderApp('/books/42');
     const user = userEvent.setup();
     await screen.findByRole('form', { name: 'Log pages' });
-    if (value) await user.type(within(logForm()).getByLabelText('Pages read'), value);
+    if (value) await user.type(within(logForm()).getByLabelText('Pages read (required)'), value);
     await user.click(within(logForm()).getByRole('button', { name: 'Log' }));
 
-    expect(within(logForm()).getByLabelText('Pages read')).toHaveAccessibleDescription(message);
+    const pages = within(logForm()).getByLabelText('Pages read (required)');
+    expect(pages).toHaveAccessibleDescription(message);
+    expect(pages).toHaveFocus(); // the error is next to the field, and focus moves there
+    expect(within(logForm()).getByRole('button', { name: 'Log' })).toBeEnabled();
     expect(calls.posts).toHaveLength(0);
+  });
+
+  it('leaves a blank date out of the request, so the API logs today', async () => {
+    const calls = setup({ entry: shelfEntry({ status: 'reading' }) });
+    renderApp('/books/42');
+    const user = userEvent.setup();
+    await screen.findByRole('form', { name: 'Log pages' });
+    await user.clear(within(logForm()).getByLabelText('Date (optional)'));
+    await user.type(within(logForm()).getByLabelText('Pages read (required)'), '9');
+    await user.click(within(logForm()).getByRole('button', { name: 'Log' }));
+
+    expect(await screen.findByText(/^Logged 9 pages for /)).toBeInTheDocument();
+    expect(calls.posts).toEqual([{ book_id: 42, pages_read: 9 }]); // no log_date: null
   });
 
   it('shows the API daily limit on the pages field', async () => {
@@ -196,11 +211,11 @@ describe('logging pages', () => {
     renderApp('/books/42');
     const user = userEvent.setup();
     await screen.findByRole('form', { name: 'Log pages' });
-    await user.type(within(logForm()).getByLabelText('Pages read'), '3000');
+    await user.type(within(logForm()).getByLabelText('Pages read (required)'), '3000');
     await user.click(within(logForm()).getByRole('button', { name: 'Log' }));
 
     await waitFor(() =>
-      expect(within(logForm()).getByLabelText('Pages read')).toHaveAccessibleDescription(
+      expect(within(logForm()).getByLabelText('Pages read (required)')).toHaveAccessibleDescription(
         /limit is 2000/,
       ),
     );
@@ -242,7 +257,7 @@ describe('the log list', () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole('button', { name: 'Edit the log for Nov 3, 2026' }));
     const form = screen.getByRole('form', { name: 'Edit the log for Nov 3, 2026' });
-    const pages = within(form).getByLabelText('Pages read');
+    const pages = within(form).getByLabelText('Pages read (required)');
     await user.clear(pages);
     await user.type(pages, '12');
     await user.click(within(form).getByRole('button', { name: 'Save' }));
@@ -250,6 +265,27 @@ describe('the log list', () => {
     expect(await screen.findByText('Saved Nov 3, 2026: 12 pages.')).toBeInTheDocument();
     expect(calls.patches).toEqual([{ id: '1', body: { pages_read: 12 } }]);
     expect(await within(logList()).findByText('12 pages')).toBeInTheDocument();
+  });
+
+  it('keeps the log day when the date is cleared while editing', async () => {
+    const calls = setup({
+      entry: shelfEntry({ status: 'reading', started_at: '2026-11-01' }),
+      logs: [logRow({ id: 1, log_date: '2026-11-03', pages_read: 30 })],
+    });
+    renderApp('/books/42');
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Edit the log for Nov 3, 2026' }));
+    const form = screen.getByRole('form', { name: 'Edit the log for Nov 3, 2026' });
+    const date = within(form).getByLabelText('Date (optional)');
+    await user.clear(date);
+    expect(date).toHaveAccessibleDescription('Left blank, this keeps Nov 3, 2026.');
+    const pages = within(form).getByLabelText('Pages read (required)');
+    await user.clear(pages);
+    await user.type(pages, '31');
+    await user.click(within(form).getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByText('Saved Nov 3, 2026: 31 pages.')).toBeInTheDocument();
+    expect(calls.patches).toEqual([{ id: '1', body: { pages_read: 31 } }]);
   });
 
   it('cancelling an edit sends nothing', async () => {
@@ -274,7 +310,7 @@ describe('the log list', () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole('button', { name: 'Edit the log for Nov 3, 2026' }));
     const form = screen.getByRole('form', { name: 'Edit the log for Nov 3, 2026' });
-    const date = within(form).getByLabelText('Date');
+    const date = within(form).getByLabelText('Date (optional)');
     await user.clear(date);
     await user.type(date, '2026-11-04');
     await user.click(within(form).getByRole('button', { name: 'Save' }));

@@ -173,8 +173,15 @@ input {
   color: var(--text);
 }
 
-input[aria-invalid='true'] {
+input[aria-invalid='true'],
+select[aria-invalid='true'] {
   border-color: var(--error);
+}
+
+/* "(required)" / "(optional)" after a label (T-7) */
+.field-need {
+  font-weight: 400;
+  color: var(--text-muted);
 }
 
 .field-error {

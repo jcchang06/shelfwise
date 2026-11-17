@@ -211,6 +211,21 @@ Response: `{year, totals: {pages, finished, dnf, average_rating}, pages_per_mont
 - **Cold starts:** `trackRequest()` marks any request pending for 3+ seconds. `ServerWakingBanner` sits outside the routes, so it also shows **on `/login` and while a stored session is restored**: "Waking up the server — this can take up to a minute." Requests time out after 90 seconds.
 - **Data loading:** TanStack Query. 4xx responses are never retried, network errors and 5xx are retried once, and data is fresh for 30 seconds. Tests mock the API with MSW, and any request without a handler fails the test.
 
+## Forms: required vs optional, and date defaults (T-7, T-8, Phase 3 PR 2)
+
+Applies to adding from search, the book page's status, details, and rating and review forms, and the logging forms: log pages, editing a log, and the dashboard quick log.
+
+- **Labels say "(required)" or "(optional)"** (`components/forms/FieldLabel.tsx`). The word is part of the label text, so screen readers hear it; nothing relies on an asterisk or on color. The shelf select always has a value, so it has neither.
+  - **The only required field is "Pages read"** when logging. Those inputs also carry `required`, which marks them as required for assistive technology; forms keep `noValidate`, so the browser never shows its own bubbles.
+  - **The space before "(optional)" sits outside the styled span.** Inside it, the accessible name calculation used in tests dropped it ("stop?(optional)").
+- **Save is never disabled.** On Save, problems show next to their fields and focus moves to the first `aria-invalid` field (`useFocusInvalid`), whether the browser-side check or the API (400 by field) found them.
+  - A second press while saving does nothing.
+  - An unchanged status form says "Choose a different shelf to move this book to." next to the shelf.
+  - The details and rating forms say "Nothing has changed yet, so there was nothing to save." in a status region.
+- **Dates are pre-filled with what the API would use** (T-8): Finished on, Stopped on and the log date show today. Started on (new, shown when moving to Reading) shows today for a re-read, and otherwise keeps an existing start date, as the API does when resuming a DNF.
+- **A blank date is left out of the request, never sent as null.** When the status changes, the API then uses its own default, today. **When editing an existing date** (details form, a log's day), leaving out the field keeps the saved date, and the field says "Left blank, this keeps Oct 1, 2026." A form can no longer clear a date back to unknown.
+- **DNF reason is optional.** The blank choice is labelled "Not specified". In the status form it's left out (the API saves `not_specified`); in the details form, choosing it on a DNF that had a reason sends `not_specified`. `CHOOSABLE_DNF_REASONS` lists every reason except `not_specified`, so it isn't offered twice.
+
 ## Dashboard (built Nov 16, 2026)
 
 - **Layout:** **"Log today's pages" comes first**, because it's the daily action and it's what a phone shows above the fold. Then the year picker, the totals and the four T-5 charts.

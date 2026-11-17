@@ -7,6 +7,7 @@ import { useLogPages } from '../../hooks/useLogs';
 import { BookCover } from '../BookCover';
 import { parsePages } from '../logs/parsePages';
 import { ReadingProgress } from '../ReadingProgress';
+import { useFocusInvalid } from '../forms/useFocusInvalid';
 import { describeError } from '../shelf/useFormErrors';
 
 interface QuickLogCardProps {
@@ -25,15 +26,18 @@ export function QuickLogCard({ entry, pagesToday, onLogged }: QuickLogCardProps)
   const log = useLogPages();
   const [pages, setPages] = useState('');
   const [clientError, setClientError] = useState<string | null>(null);
+  const { ref, focusInvalid } = useFocusInvalid();
   const server = describeError(log.error, ['pages_read', 'log_date']);
   const error = clientError ?? server.fields.pages_read ?? server.fields.log_date ?? null;
   const title = entry.book.title;
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (log.isPending) return; // Log stays enabled; a second press does nothing
     const parsed = parsePages(pages);
     if (typeof parsed === 'string') {
       setClientError(parsed);
+      focusInvalid();
       return;
     }
     setClientError(null);
@@ -43,7 +47,7 @@ export function QuickLogCard({ entry, pagesToday, onLogged }: QuickLogCardProps)
         setPages(''); // cleared after a successful log
         onLogged(`Logged ${parsed} ${parsed === 1 ? 'page' : 'pages'} for ${title} today.`);
       })
-      .catch(() => undefined); // shown from log.error
+      .catch(() => focusInvalid()); // the error itself is shown from log.error
   }
 
   const errorId = `${id}-error`;
@@ -60,12 +64,13 @@ export function QuickLogCard({ entry, pagesToday, onLogged }: QuickLogCardProps)
             ? `Today: ${pagesToday} ${pagesToday === 1 ? 'page' : 'pages'}`
             : 'Nothing logged today'}
         </p>
-        <form className="quick-log-form" onSubmit={handleSubmit} noValidate>
+        <form ref={ref} className="quick-log-form" onSubmit={handleSubmit} noValidate>
           <label htmlFor={`${id}-pages`} className="visually-hidden">
-            Pages read today for {title}
+            Pages read today for {title} (required)
           </label>
           <input
             id={`${id}-pages`}
+            required
             type="number"
             inputMode="numeric"
             enterKeyHint="done"
@@ -77,9 +82,7 @@ export function QuickLogCard({ entry, pagesToday, onLogged }: QuickLogCardProps)
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? errorId : undefined}
           />
-          <button type="submit" disabled={log.isPending}>
-            {log.isPending ? 'Logging…' : 'Log'}
-          </button>
+          <button type="submit">{log.isPending ? 'Logging…' : 'Log'}</button>
         </form>
         {error ? (
           <p id={errorId} className="field-error">

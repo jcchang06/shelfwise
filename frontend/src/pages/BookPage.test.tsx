@@ -108,11 +108,44 @@ describe('adding from the book page', () => {
 });
 
 describe('status', () => {
-  it('keeps Save disabled until the status changes', async () => {
+  it('keeps Save enabled, and explains an unchanged shelf next to it', async () => {
+    const captured = setup({ entry: shelfEntry({ status: 'reading' }) });
+    renderApp('/books/42');
+    const user = userEvent.setup();
+    await screen.findByRole('form', { name: 'Status' });
+    const save = within(statusForm()).getByRole('button', { name: 'Save status' });
+    expect(save).toBeEnabled();
+    await user.click(save);
+
+    const shelf = screen.getByRole('combobox', { name: 'Shelf' });
+    expect(shelf).toHaveAccessibleDescription('Choose a different shelf to move this book to.');
+    expect(shelf).toHaveFocus();
+    expect(captured.patches).toHaveLength(0);
+  });
+
+  it('labels every field besides the shelf as optional', async () => {
     setup({ entry: shelfEntry({ status: 'reading' }) });
     renderApp('/books/42');
-    await screen.findByRole('form', { name: 'Status' });
-    expect(within(statusForm()).getByRole('button', { name: 'Save status' })).toBeDisabled();
+    const user = userEvent.setup();
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Shelf' }), 'dnf');
+    for (const label of ['Why did you stop?', 'Stopped at page', 'Stopped on', 'Note']) {
+      expect(within(statusForm()).getByLabelText(`${label} (optional)`)).toBeInTheDocument();
+    }
+  });
+
+  it('moves focus to a date the API rejects', async () => {
+    setup({
+      entry: shelfEntry({ status: 'reading' }),
+      patchResponse: () => HttpResponse.json({ finished_at: ['Too early.'] }, { status: 400 }),
+    });
+    renderApp('/books/42');
+    const user = userEvent.setup();
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Shelf' }), 'finished');
+    await user.click(within(statusForm()).getByRole('button', { name: 'Save status' }));
+
+    const date = within(statusForm()).getByLabelText('Finished on (optional)');
+    await waitFor(() => expect(date).toHaveFocus());
+    expect(date).toHaveAccessibleDescription('Too early.');
   });
 
   it('marks finished with a finish date', async () => {
@@ -121,7 +154,7 @@ describe('status', () => {
     const user = userEvent.setup();
     await user.selectOptions(await screen.findByRole('combobox', { name: 'Shelf' }), 'finished');
 
-    const date = within(statusForm()).getByLabelText('Finished on');
+    const date = within(statusForm()).getByLabelText('Finished on (optional)');
     expect(date).toHaveValue(localDateISO());
     await user.clear(date);
     await user.type(date, '2026-11-01');
@@ -131,17 +164,45 @@ describe('status', () => {
     expect(captured.patches).toEqual([{ status: 'finished', finished_at: '2026-11-01' }]);
   });
 
-  it('requires a DNF reason before sending anything', async () => {
+  it('leaves a blank finish date out of the request, so the API uses today', async () => {
+    const captured = setup({ entry: shelfEntry({ status: 'reading' }) });
+    renderApp('/books/42');
+    const user = userEvent.setup();
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Shelf' }), 'finished');
+    await user.clear(within(statusForm()).getByLabelText('Finished on (optional)'));
+    await user.click(within(statusForm()).getByRole('button', { name: 'Save status' }));
+
+    await screen.findByText('Moved to Finished.');
+    expect(captured.patches).toEqual([{ status: 'finished' }]); // no finished_at: null
+  });
+
+  it('starts reading today by default, or on the date chosen', async () => {
+    const captured = setup({ entry: shelfEntry({ status: 'want_to_read' }) });
+    renderApp('/books/42');
+    const user = userEvent.setup();
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'Shelf' }), 'reading');
+
+    const started = within(statusForm()).getByLabelText('Started on (optional)');
+    expect(started).toHaveValue(localDateISO());
+    await user.clear(started);
+    await user.type(started, '2026-11-02');
+    await user.click(within(statusForm()).getByRole('button', { name: 'Save status' }));
+
+    await screen.findByText('Moved to Reading.');
+    expect(captured.patches).toEqual([{ status: 'reading', started_at: '2026-11-02' }]);
+  });
+
+  it('marks DNF without a reason, leaving it out so the API saves "not specified"', async () => {
     const captured = setup({ entry: shelfEntry({ status: 'reading', pages_logged: 80 }) });
     renderApp('/books/42');
     const user = userEvent.setup();
     await user.selectOptions(await screen.findByRole('combobox', { name: 'Shelf' }), 'dnf');
+    const reason = screen.getByRole('combobox', { name: 'Why did you stop? (optional)' });
+    expect(reason).toHaveDisplayValue('Not specified');
     await user.click(within(statusForm()).getByRole('button', { name: 'Save status' }));
 
-    expect(screen.getByRole('combobox', { name: 'Why did you stop?' })).toHaveAccessibleDescription(
-      'Choose why you stopped reading.',
-    );
-    expect(captured.patches).toHaveLength(0);
+    await screen.findByText('Moved to Did not finish.');
+    expect(captured.patches).toEqual([{ status: 'dnf', dnf_page: 80, dnf_at: localDateISO() }]);
   });
 
   it('marks DNF with reason, the logged page (capped), date and note', async () => {
@@ -150,8 +211,11 @@ describe('status', () => {
     const user = userEvent.setup();
     await user.selectOptions(await screen.findByRole('combobox', { name: 'Shelf' }), 'dnf');
 
-    expect(screen.getByLabelText('Stopped at page')).toHaveValue(496); // capped at page_count
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Why did you stop?' }), 'pacing');
+    expect(screen.getByLabelText('Stopped at page (optional)')).toHaveValue(496); // capped at page_count
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Why did you stop? (optional)' }),
+      'pacing',
+    );
     await user.type(screen.getByLabelText('Note (optional)'), 'Too slow');
     await user.click(within(statusForm()).getByRole('button', { name: 'Save status' }));
 
@@ -174,6 +238,7 @@ describe('status', () => {
         dnf_reason: 'pacing',
         dnf_page: 120,
         dnf_at: '2026-11-01',
+        started_at: '2026-10-15',
       }),
     });
     renderApp('/books/42');
@@ -181,20 +246,33 @@ describe('status', () => {
     await user.selectOptions(await screen.findByRole('combobox', { name: 'Shelf' }), 'reading');
 
     expect(screen.getByText(/Resuming clears the DNF details/)).toBeInTheDocument();
+    // Resuming continues the same read, so its start date is kept.
+    expect(within(statusForm()).getByLabelText('Started on (optional)')).toHaveValue('2026-10-15');
     await user.click(within(statusForm()).getByRole('button', { name: 'Save status' }));
     await screen.findByText('Moved to Reading.');
-    expect(captured.patches).toEqual([{ status: 'reading' }]);
+    expect(captured.patches).toEqual([{ status: 'reading', started_at: '2026-10-15' }]);
   });
 
   it('explains a re-read when a finished book goes back to reading', async () => {
-    setup({ entry: shelfEntry({ status: 'finished', rating: 5, finished_at: '2025-03-09' }) });
+    setup({
+      entry: shelfEntry({
+        status: 'finished',
+        rating: 5,
+        started_at: '2025-02-01',
+        finished_at: '2025-03-09',
+      }),
+    });
     renderApp('/books/42');
     await userEvent
       .setup()
       .selectOptions(await screen.findByRole('combobox', { name: 'Shelf' }), 'reading');
     expect(
-      screen.getByText('Re-reading: your rating stays, and the start date becomes today.'),
+      screen.getByText('Re-reading: your rating stays, and the new read starts on the date below.'),
     ).toBeInTheDocument();
+    // A re-read is a new read: it starts today, not on the last read's start date.
+    expect(within(statusForm()).getByLabelText('Started on (optional)')).toHaveValue(
+      localDateISO(),
+    );
   });
 
   it('shows API rule errors', async () => {
@@ -209,14 +287,28 @@ describe('status', () => {
     await user.click(within(statusForm()).getByRole('button', { name: 'Save status' }));
 
     await waitFor(() =>
-      expect(within(statusForm()).getByLabelText('Finished on')).toHaveAccessibleDescription(
-        "This date can't be in the future.",
-      ),
+      expect(
+        within(statusForm()).getByLabelText('Finished on (optional)'),
+      ).toHaveAccessibleDescription("This date can't be in the future."),
     );
   });
 });
 
 describe('rating and review', () => {
+  it('keeps Save enabled and says when nothing has changed', async () => {
+    const captured = setup({ entry: shelfEntry({ status: 'finished', rating: 4 }) });
+    renderApp('/books/42');
+    const user = userEvent.setup();
+    await screen.findByRole('form', { name: 'Rating and review' });
+    expect(within(ratingForm()).getByLabelText('Review (optional)')).toBeInTheDocument();
+    await user.click(within(ratingForm()).getByRole('button', { name: 'Save rating and review' }));
+
+    expect(
+      within(ratingForm()).getByText('Nothing has changed yet, so there was nothing to save.'),
+    ).toBeInTheDocument();
+    expect(captured.patches).toHaveLength(0);
+  });
+
   it('rates a finished book with the keyboard-friendly radio group', async () => {
     const captured = setup({
       entry: shelfEntry({ status: 'finished', finished_at: '2026-11-01' }),
@@ -225,7 +317,7 @@ describe('rating and review', () => {
     const user = userEvent.setup();
     await screen.findByRole('form', { name: 'Rating and review' });
 
-    const group = within(ratingForm()).getByRole('group', { name: 'Your rating' });
+    const group = within(ratingForm()).getByRole('group', { name: 'Your rating (optional)' });
     expect(within(group).getAllByRole('radio')).toHaveLength(5);
     await user.click(within(group).getByRole('radio', { name: '4 stars' }));
     await user.click(within(ratingForm()).getByRole('button', { name: 'Save rating and review' }));
@@ -253,7 +345,7 @@ describe('rating and review', () => {
     const user = userEvent.setup();
     await screen.findByRole('form', { name: 'Rating and review' });
     await user.click(within(ratingForm()).getByRole('button', { name: 'Clear' }));
-    await user.type(within(ratingForm()).getByLabelText('Review'), 'Loved it');
+    await user.type(within(ratingForm()).getByLabelText('Review (optional)'), 'Loved it');
     await user.click(within(ratingForm()).getByRole('button', { name: 'Save rating and review' }));
 
     await screen.findByText('Saved your rating and review.');
@@ -277,7 +369,7 @@ describe('rating and review', () => {
 
     // Reviews work on any status.
     const user = userEvent.setup();
-    await user.type(within(ratingForm()).getByLabelText('Review'), 'Heard great things');
+    await user.type(within(ratingForm()).getByLabelText('Review (optional)'), 'Heard great things');
     await user.click(within(ratingForm()).getByRole('button', { name: 'Save rating and review' }));
     await screen.findByText('Saved your rating and review.');
     expect(captured.patches).toEqual([{ review: 'Heard great things' }]);
@@ -285,7 +377,7 @@ describe('rating and review', () => {
 });
 
 describe('details', () => {
-  it('sends only the changed dates, with a cleared date as null', async () => {
+  it('sends only the changed dates', async () => {
     const captured = setup({
       entry: shelfEntry({
         status: 'finished',
@@ -296,11 +388,65 @@ describe('details', () => {
     renderApp('/books/42');
     const user = userEvent.setup();
     await screen.findByRole('form', { name: 'Details' });
-    await user.clear(within(detailsForm()).getByLabelText('Started on'));
+    const started = within(detailsForm()).getByLabelText('Started on (optional)');
+    await user.clear(started);
+    await user.type(started, '2026-10-02');
     await user.click(within(detailsForm()).getByRole('button', { name: 'Save details' }));
 
     await screen.findByText('Saved the details.');
-    expect(captured.patches).toEqual([{ started_at: null }]);
+    expect(captured.patches).toEqual([{ started_at: '2026-10-02' }]);
+  });
+
+  it('never sends a blank date as null: it keeps the saved date, and says so', async () => {
+    const captured = setup({
+      entry: shelfEntry({
+        status: 'finished',
+        started_at: '2026-10-01',
+        finished_at: '2026-10-20',
+      }),
+    });
+    renderApp('/books/42');
+    const user = userEvent.setup();
+    await screen.findByRole('form', { name: 'Details' });
+    const started = within(detailsForm()).getByLabelText('Started on (optional)');
+    await user.clear(started);
+    expect(started).toHaveAccessibleDescription('Left blank, this keeps Oct 1, 2026.');
+    const save = within(detailsForm()).getByRole('button', { name: 'Save details' });
+    expect(save).toBeEnabled();
+    await user.click(save);
+
+    expect(
+      within(detailsForm()).getByText('Nothing has changed yet, so there was nothing to save.'),
+    ).toBeInTheDocument();
+    expect(captured.patches).toHaveLength(0);
+  });
+
+  it('saves a cleared DNF reason as not_specified', async () => {
+    const captured = setup({
+      entry: shelfEntry({ status: 'dnf', dnf_reason: 'pacing', dnf_at: '2026-11-01' }),
+    });
+    renderApp('/books/42');
+    const user = userEvent.setup();
+    await screen.findByRole('form', { name: 'Details' });
+    await user.selectOptions(
+      within(detailsForm()).getByRole('combobox', { name: 'Why did you stop? (optional)' }),
+      '',
+    );
+    await user.click(within(detailsForm()).getByRole('button', { name: 'Save details' }));
+
+    await screen.findByText('Saved the details.');
+    expect(captured.patches).toEqual([{ dnf_reason: 'not_specified' }]);
+  });
+
+  it('shows a not-specified reason as the blank choice', async () => {
+    setup({ entry: shelfEntry({ status: 'dnf', dnf_reason: 'not_specified' }) });
+    renderApp('/books/42');
+    await screen.findByRole('form', { name: 'Details' });
+    const reason = within(detailsForm()).getByRole('combobox', {
+      name: 'Why did you stop? (optional)',
+    });
+    expect(reason).toHaveValue('');
+    expect(within(reason).getAllByRole('option', { name: 'Not specified' })).toHaveLength(1);
   });
 
   it('edits DNF details while the book is DNF', async () => {
@@ -316,7 +462,7 @@ describe('details', () => {
     const user = userEvent.setup();
     await screen.findByRole('form', { name: 'Details' });
     await user.selectOptions(
-      within(detailsForm()).getByRole('combobox', { name: 'Why did you stop?' }),
+      within(detailsForm()).getByRole('combobox', { name: 'Why did you stop? (optional)' }),
       'not_my_genre',
     );
     await user.click(within(detailsForm()).getByRole('button', { name: 'Save details' }));
@@ -329,7 +475,9 @@ describe('details', () => {
     setup({ entry: shelfEntry({ status: 'reading' }) });
     renderApp('/books/42');
     await screen.findByRole('form', { name: 'Details' });
-    expect(within(detailsForm()).queryByLabelText('Why did you stop?')).not.toBeInTheDocument();
+    expect(
+      within(detailsForm()).queryByLabelText('Why did you stop? (optional)'),
+    ).not.toBeInTheDocument();
   });
 });
 

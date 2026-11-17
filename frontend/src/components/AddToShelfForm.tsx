@@ -5,8 +5,10 @@ import type { AddToShelfPayload, BookReference } from '../api/shelf';
 import { SHELF_STATUS_LABELS, type BookSource, type ShelfStatus } from '../api/types';
 import { localDateISO } from '../dates';
 import { useAddToShelf } from '../hooks/useAddToShelf';
+import { FieldLabel } from './forms/FieldLabel';
+import { useFocusInvalid } from './forms/useFocusInvalid';
 
-/** Statuses offered from search. DNF needs a reason, so it's set on the book page. */
+/** Statuses offered from search. DNF is set on the book page, with its page and reason. */
 const ADDABLE: ShelfStatus[] = ['want_to_read', 'reading', 'finished'];
 
 /** A search result (source + maybe book_id) or a catalog book (book_id). */
@@ -38,6 +40,7 @@ export function AddToShelfForm({ result, onAdded }: AddToShelfFormProps) {
   const [dateError, setDateError] = useState<string | null>(null);
   const [alreadyShelved, setAlreadyShelved] = useState(false);
   const add = useAddToShelf();
+  const { ref, focusInvalid } = useFocusInvalid();
 
   if (alreadyShelved) {
     return <p className="shelf-badge">Already on your shelf</p>;
@@ -45,13 +48,15 @@ export function AddToShelfForm({ result, onAdded }: AddToShelfFormProps) {
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (add.isPending) return; // Save stays enabled; a second press does nothing
     setDateError(null);
     if (status === 'finished' && finishedOn && finishedOn > today) {
       setDateError("The finish date can't be in the future.");
+      focusInvalid();
       return;
     }
     const payload: AddToShelfPayload = { ...bookReference(result), status };
-    // An empty date means "today", which the API defaults to anyway.
+    // A blank date is left out, so the API's "today" default applies (T-8).
     if (status === 'finished' && finishedOn) payload.finished_at = finishedOn;
 
     // mutateAsync, not mutate callbacks: on the book page this form unmounts as soon as
@@ -63,6 +68,8 @@ export function AddToShelfForm({ result, onAdded }: AddToShelfFormProps) {
         if (conflictId(error) !== null) {
           setAlreadyShelved(true); // a 409 means it's there already: not a failure
           onAdded(`${result.title} is already on your shelf.`);
+        } else {
+          focusInvalid();
         }
       });
   }
@@ -76,7 +83,7 @@ export function AddToShelfForm({ result, onAdded }: AddToShelfFormProps) {
   const shownDateError = dateError ?? serverDateError;
 
   return (
-    <form className="add-to-shelf" onSubmit={handleSubmit} noValidate>
+    <form ref={ref} className="add-to-shelf" onSubmit={handleSubmit} noValidate>
       <label htmlFor={statusId} className="visually-hidden">
         Shelf for {result.title}
       </label>
@@ -94,7 +101,9 @@ export function AddToShelfForm({ result, onAdded }: AddToShelfFormProps) {
       </select>
       {status === 'finished' ? (
         <span className="finished-on">
-          <label htmlFor={dateId}>Finished on</label>
+          <FieldLabel htmlFor={dateId} need="optional">
+            Finished on
+          </FieldLabel>
           <input
             id={dateId}
             type="date"
@@ -107,9 +116,7 @@ export function AddToShelfForm({ result, onAdded }: AddToShelfFormProps) {
           />
         </span>
       ) : null}
-      <button type="submit" disabled={add.isPending}>
-        {add.isPending ? 'Adding…' : 'Add'}
-      </button>
+      <button type="submit">{add.isPending ? 'Adding…' : 'Add'}</button>
       {shownDateError ? (
         <p id={dateErrorId} className="field-error">
           {shownDateError}
