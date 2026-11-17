@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SLOW_REQUEST_MS } from './api/serverWaking';
 import { getRefreshToken, setRefreshToken } from './api/tokens';
 import { renderApp } from './test/renderApp';
-import { api, authHandlers, ME, server } from './test/server';
+import { api, authHandlers, dashboardHandlers, ME, server } from './test/server';
 
 async function logIn(email = ME.email, password = 'correct-horse') {
   const user = userEvent.setup();
@@ -23,14 +23,14 @@ describe('routing and login', () => {
   });
 
   it('logs in and returns to the page that was asked for', async () => {
-    server.use(...authHandlers());
+    server.use(...authHandlers(), ...dashboardHandlers());
     renderApp('/dashboard');
     await screen.findByRole('heading', { name: 'Log in to Shelfwise' });
 
     await logIn();
 
     expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
-    expect(screen.getByText(/signed in as reader@example.com/i)).toBeInTheDocument();
+    expect(screen.getByText('reader@example.com')).toBeInTheDocument(); // header
     expect(getRefreshToken()).toBe('refresh-1');
   });
 
@@ -67,7 +67,7 @@ describe('routing and login', () => {
 
   it('restores a stored session on load', async () => {
     setRefreshToken('refresh-1');
-    server.use(...authHandlers());
+    server.use(...authHandlers(), ...dashboardHandlers());
     renderApp('/dashboard');
     expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
     expect(getRefreshToken()).toBe('refresh-2'); // rotated on refresh
@@ -90,7 +90,7 @@ describe('routing and login', () => {
 
   it('logs out', async () => {
     setRefreshToken('refresh-1');
-    server.use(...authHandlers());
+    server.use(...authHandlers(), ...dashboardHandlers());
     renderApp('/dashboard');
     await screen.findByRole('heading', { name: 'Dashboard' });
 
@@ -108,7 +108,7 @@ describe('routing and login', () => {
 
   it('has a skip link to the main content', async () => {
     setRefreshToken('refresh-1');
-    server.use(...authHandlers());
+    server.use(...authHandlers(), ...dashboardHandlers());
     renderApp('/dashboard');
     await screen.findByRole('heading', { name: 'Dashboard' });
     expect(screen.getByRole('link', { name: 'Skip to content' })).toHaveAttribute('href', '#main');
@@ -128,6 +128,7 @@ describe('cold-start banner', () => {
         return HttpResponse.json({ access: 'a', refresh: 'r' });
       }),
       http.get(api('/auth/me/'), () => HttpResponse.json(ME)),
+      ...dashboardHandlers(),
     );
     renderApp('/login');
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -153,6 +154,7 @@ describe('cold-start banner', () => {
         return HttpResponse.json({ access: 'a', refresh: 'r' });
       }),
       http.get(api('/auth/me/'), () => HttpResponse.json(ME)),
+      ...dashboardHandlers(),
     );
     renderApp('/dashboard');
     await act(() => vi.advanceTimersByTimeAsync(SLOW_REQUEST_MS));

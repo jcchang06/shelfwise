@@ -34,6 +34,12 @@ export interface LogChanges {
   log_date?: string;
 }
 
+/** The caller's logs for one day (any book). First page only: one row per book per day. */
+export function listLogsOn(date: string): Promise<Paginated<ReadingLog>> {
+  const params = new URLSearchParams({ from: date, to: date });
+  return apiGet<Paginated<ReadingLog>>(`/logs/?${params}`);
+}
+
 export function listLogs(bookId: number, page = 1): Promise<Paginated<ReadingLog>> {
   const params = new URLSearchParams({ book: String(bookId), page: String(page) });
   return apiGet<Paginated<ReadingLog>>(`/logs/?${params}`);
