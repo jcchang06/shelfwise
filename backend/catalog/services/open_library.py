@@ -5,6 +5,9 @@ No key. Open Library asks clients to send an identifying User-Agent (settings).
 """
 
 import hashlib
+import threading
+import time
+from dataclasses import replace
 from functools import cache as memoize
 from typing import Any
 
@@ -62,7 +65,26 @@ def work_search_params(work_key: str) -> dict[str, Any]:
     return {"q": f"key:/works/{work_key}", "limit": 1, "fields": SEARCH_FIELDS}
 
 
+_throttle_lock = threading.Lock()
+_last_request_at = 0.0
+
+
+def _throttle() -> None:
+    """Space requests to OPEN_LIBRARY_REQUESTS_PER_SECOND (their published limit), across
+    all callers in this process. Search, saves and imports all go through here."""
+    global _last_request_at
+    rate = settings.OPEN_LIBRARY_REQUESTS_PER_SECOND
+    if rate <= 0:
+        return
+    with _throttle_lock:
+        wait = _last_request_at + 1 / rate - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _last_request_at = time.monotonic()
+
+
 def _get(url: str, params: dict[str, Any] | None = None) -> Any:
+    _throttle()
     response = get_response(_session(), url, params)
     if response.status_code == 404:
         raise BookNotFoundError(url.rsplit("/", 1)[-1])
@@ -172,3 +194,40 @@ def merge_work(base: BookResult | None, work: dict[str, Any], work_key: str) -> 
         isbn_13=base.isbn_13,
         cover_url=base.cover_url or _cover_url(covers[0] if covers else None),
     )
+
+
+# --- Batch ISBN lookup (Goodreads import) ---------------------------------------------
+
+# ISBNs per search request. Open Library asks for batched search.json queries rather than
+# "hundreds of single-book requests"; this keeps the query string comfortably short.
+ISBN_BATCH_SIZE = 40
+
+
+def isbn_batch_params(isbns: list[str]) -> dict[str, Any]:
+    return {
+        "q": f"isbn:({' OR '.join(isbns)})",
+        "fields": SEARCH_FIELDS,
+        # One ISBN can belong to several works, so allow a few results per ISBN.
+        "limit": len(isbns) * 3,
+    }
+
+
+def search_by_isbns(isbns: list[str]) -> dict[str, list[BookResult]]:
+    """{isbn: [results whose editions include it]} for many ISBNs, ISBN_BATCH_SIZE per
+    request. Each result's isbn_13 is set to the ISBN that matched, so the saved book
+    gets the edition the reader actually has. Missing ISBNs are simply absent."""
+    wanted = list(dict.fromkeys(i for i in isbns if i))
+    found: dict[str, list[BookResult]] = {}
+    for start in range(0, len(wanted), ISBN_BATCH_SIZE):
+        chunk = wanted[start : start + ISBN_BATCH_SIZE]
+        docs = _get(f"{API_ROOT}/search.json", isbn_batch_params(chunk)).get("docs") or ()
+        for doc in docs:
+            result = parse_search_doc(doc)
+            if result is None:
+                continue
+            # Some editions are listed only by ISBN-10; compare everything as ISBN-13.
+            doc_isbns = {normalize.as_isbn_13(i) for i in doc.get("isbn") or ()}
+            for isbn in chunk:
+                if isbn in doc_isbns:
+                    found.setdefault(isbn, []).append(replace(result, isbn_13=isbn))
+    return found

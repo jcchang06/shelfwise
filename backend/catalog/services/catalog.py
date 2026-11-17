@@ -48,15 +48,25 @@ def get_or_create_book(source: Source | str, source_id: str) -> tuple[Book, bool
     existing = Book.objects.filter(**{id_field: source_id}).first()
     if existing:
         return existing, False
+    return save_book_result(fetch_book(source, source_id))
 
-    result = fetch_book(source, source_id)
 
+def save_book_result(result: BookResult) -> tuple[Book, bool]:
+    """Save a result already in hand (e.g. a search or batch hit) without another API call.
+
+    Same matching rules as get_or_create_book: same source ID, then oldest ISBN-13, else a
+    new book. The Goodreads import uses this so it never makes single-book requests.
+    """
+    id_field = _ID_FIELD[result.source]
+    existing = Book.objects.filter(**{id_field: result.source_id}).first()
+    if existing:
+        return existing, False
     try:
         with transaction.atomic():
             return _save(result, id_field)
     except IntegrityError:
         # Another request saved the same source ID between our check and insert.
-        return Book.objects.get(**{id_field: source_id}), False
+        return Book.objects.get(**{id_field: result.source_id}), False
 
 
 def _save(result: BookResult, id_field: str) -> tuple[Book, bool]:

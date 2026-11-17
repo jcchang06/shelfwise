@@ -182,6 +182,10 @@ OPEN_LIBRARY_USER_AGENT = env(
     "OPEN_LIBRARY_USER_AGENT",
     default="Shelfwise/0.1 (+https://github.com/jcchang06/shelfwise)",
 )
+# Open Library allows 1 request/second for clients that don't give a contact email in the
+# User-Agent, 3/second for those that do. We send no email by default, so: 1. Set this to
+# 3 only after adding a contact to OPEN_LIBRARY_USER_AGENT. 0 disables throttling (tests).
+OPEN_LIBRARY_REQUESTS_PER_SECOND = env.float("OPEN_LIBRARY_REQUESTS_PER_SECOND", default=1.0)
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
 
 # --- Domain -------------------------------------------------------------------

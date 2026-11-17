@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
+from catalog.services.normalize import isbn10_to_13
 from imports.csv_parser import (
     REQUIRED_COLUMNS,
     ImportFileError,
-    isbn10_to_13,
     map_row,
     map_status,
     parse_goodreads_csv,
