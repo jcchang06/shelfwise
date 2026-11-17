@@ -27,7 +27,7 @@ DEBUG = env.bool("DJANGO_DEBUG", default=False)
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 CSRF_TRUSTED_ORIGINS: list[str] = []
 
-# Render sets this to the service's public hostname (e.g. shelfwise-api.onrender.com),
+# Render sets this to the service's public hostname (e.g. shelfwise-api-et8p.onrender.com),
 # so production never needs the hostname typed into an env var.
 RENDER_EXTERNAL_HOSTNAME = env.str("RENDER_EXTERNAL_HOSTNAME", default="")
 if RENDER_EXTERNAL_HOSTNAME:

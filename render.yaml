@@ -9,7 +9,7 @@
 
 services:
   - type: web
-    name: shelfwise-api
+    name: shelfwise-api # live at https://shelfwise-api-et8p.onrender.com (Render added -et8p)
     runtime: python
     plan: free
     region: oregon # same AWS region as the Neon database (us-west-2)
