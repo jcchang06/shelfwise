@@ -5,8 +5,7 @@ import { SHELF_SORTS, type ShelfSort } from '../api/shelf';
 import { SHELF_STATUS_LABELS, type ShelfStatus } from '../api/types';
 import { ShelfRow } from '../components/ShelfRow';
 import { useShelfList } from '../hooks/useShelf';
-
-const SHELVES: ShelfStatus[] = ['reading', 'want_to_read', 'finished', 'dnf'];
+import { isShelf } from '../shelves';
 
 const EMPTY: Record<ShelfStatus, string> = {
   reading: "You're not reading anything right now.",
@@ -14,10 +13,6 @@ const EMPTY: Record<ShelfStatus, string> = {
   finished: "You haven't finished any books yet.",
   dnf: 'No books marked DNF.',
 };
-
-function isShelf(value: string | null): value is ShelfStatus {
-  return value !== null && (SHELVES as string[]).includes(value);
-}
 
 function isSort(value: string | null): value is ShelfSort {
   return value !== null && value in SHELF_SORTS;
@@ -41,22 +36,11 @@ export default function ShelfPage() {
 
   return (
     <>
-      <h1>Your shelf</h1>
+      {/* The shelves themselves are in the shelf bar (ShelfBar) on every page. */}
+      <h1>Your shelf: {SHELF_STATUS_LABELS[status]}</h1>
       <p className="visually-hidden" role="status">
         {announce}
       </p>
-
-      <nav aria-label="Shelves" className="shelf-tabs">
-        {SHELVES.map((value) => (
-          <Link
-            key={value}
-            to={`?${new URLSearchParams({ status: value, sort })}`}
-            aria-current={value === status ? 'page' : undefined}
-          >
-            {SHELF_STATUS_LABELS[value]}
-          </Link>
-        ))}
-      </nav>
 
       <div className="shelf-sort">
         <label htmlFor="shelf-sort">Sort by</label>

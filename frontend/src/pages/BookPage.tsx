@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
+import { shelfPath } from '../shelves';
 import { bookSourceLink } from '../api/books';
 import { ApiError } from '../api/client';
 import { formError } from '../api/errors';
@@ -69,7 +70,10 @@ function ShelfSummary({ entry }: { entry: ShelfEntry }) {
   ].filter(Boolean);
   return (
     <div className="shelf-summary">
-      <p className="shelf-badge">On your shelf · {SHELF_STATUS_LABELS[entry.status]}</p>
+      <p className="shelf-badge">
+        On your shelf ·{' '}
+        <Link to={shelfPath(entry.status)}>{SHELF_STATUS_LABELS[entry.status]}</Link>
+      </p>
       {dates.length ? <p className="book-meta">{dates.join(' · ')}</p> : null}
       {entry.status === 'reading' ? (
         <ReadingProgress pagesLogged={entry.pages_logged} pageCount={entry.book.page_count} />

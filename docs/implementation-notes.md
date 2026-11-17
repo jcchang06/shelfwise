@@ -227,6 +227,14 @@ Applies to adding from search, the book page's status, details, and rating and r
 - **DNF reason is optional.** The blank choice is labelled "Not specified". In the status form it's left out (the API saves `not_specified`); in the details form, choosing it on a DNF that had a reason sends `not_specified`. `CHOOSABLE_DNF_REASONS` lists every reason except `not_specified`, so it isn't offered twice.
 - **DNF from search.** The search add form offers all four shelves. Choosing Did not finish shows the same optional fields as the book page (`shelf/DnfFields.tsx`, with the request-building helpers in `shelf/dnfValues.ts`): reason (blank = not specified), stopped at page (blank, because a new book has no logs), stopped on (today) and a note. Blank fields are left out of the POST, so the API applies `not_specified` and today.
 
+## Shelf bar (Phase 3, with DNF from search)
+
+- **The four shelves are one click away on every logged-in page.** `ShelfBar` sits under the header: Reading, Want to read, Finished, DNF. It replaces the shelf page's tabs, so there is one set of shelf links. "DNF" is short so the bar fits one row from about 380px; narrower screens wrap to two rows.
+- **Plain links in a `<nav aria-label="Shelves">` landmark,** right after the main nav in tab order (the skip link jumps past both). There's no menu to open. Links are at least 44px tall.
+- **On `/shelf`** the current shelf has `aria-current="page"` and switching keeps `?sort=`. The heading names the shelf ("Your shelf: Finished"), since the tabs are gone. Elsewhere, no link is marked current.
+- **The book page's "On your shelf · Reading" badge** links to that shelf. The main nav's "Shelf" item still opens Reading.
+- **Cost:** one row (about 44px) on every page, including above the dashboard's quick log. Agreed as acceptable.
+
 ## Dashboard (built Nov 16, 2026)
 
 - **Layout:** **"Log today's pages" comes first**, because it's the daily action and it's what a phone shows above the fold. Then the year picker, the totals and the four T-5 charts.

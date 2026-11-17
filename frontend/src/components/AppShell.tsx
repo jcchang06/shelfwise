@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthContext';
+import { ShelfBar } from './ShelfBar';
 
 /** Layout for logged-in pages: skip link, navigation and the main landmark. */
 export function AppShell() {
@@ -27,6 +28,7 @@ export function AppShell() {
           </button>
         </div>
       </header>
+      <ShelfBar />
       <main id="main" tabIndex={-1}>
         <Outlet />
       </main>

@@ -496,7 +496,7 @@ describe('removing', () => {
 
     await user.click(within(dialog).getByRole('button', { name: 'Remove' }));
 
-    expect(await screen.findByRole('heading', { name: 'Your shelf' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Your shelf: Reading' })).toBeInTheDocument();
     expect(screen.getByText('Removed Project Hail Mary from your shelf.')).toBeInTheDocument();
     expect(captured.deletes).toHaveLength(1);
   });

@@ -144,7 +144,13 @@ describe('logging pages', () => {
     await user.click(within(logForm()).getByRole('button', { name: 'Log' }));
 
     expect(await screen.findByText(/Moved to Reading\.$/)).toBeInTheDocument();
-    expect(await screen.findByText('On your shelf · Reading')).toBeInTheDocument();
+    const badge = await screen.findByText(
+      (_, el) => el?.className === 'shelf-badge' && el.textContent === 'On your shelf · Reading',
+    );
+    expect(within(badge).getByRole('link', { name: 'Reading' })).toHaveAttribute(
+      'href',
+      '/shelf?status=reading',
+    );
     // The status form re-keyed to the new status rather than showing a stale choice.
     expect(screen.getByRole('combobox', { name: 'Shelf' })).toHaveValue('reading');
   });
