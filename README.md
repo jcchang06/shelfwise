@@ -15,8 +15,10 @@ A personal reading tracker with content-based recommendations and new-release em
 
 Requires Docker.
 
+Copy `.env.example` to `.env`, then set `DJANGO_SECRET_KEY` in it to a long random string.
+
 ```bash
-cp .env.example .env      # set DJANGO_SECRET_KEY to a long random string
+cp .env.example .env
 docker compose up
 docker compose exec backend python manage.py migrate
 docker compose exec backend python manage.py createcachetable
@@ -88,16 +90,18 @@ Do these steps once, in this order.
 
    ```zsh
    read -rs "DATABASE_URL?Paste Neon URL: "; export DATABASE_URL; echo
-   .venv/bin/python manage.py dbinfo           # must print the ep-….neon.tech host
+   .venv/bin/python manage.py dbinfo
    .venv/bin/python manage.py migrate
    .venv/bin/python manage.py createcachetable
-   .venv/bin/python manage.py createsuperuser  # your login, with admin access
+   .venv/bin/python manage.py createsuperuser
    unset DATABASE_URL
    ```
 
    - **The URL never reaches your shell history:** `read -rs` doesn't echo the paste and keeps it out of history, and `unset` clears it at the end.
    - **The exported `DATABASE_URL` overrides the one in your local `.env`.** Settings load `.env` with `overwrite=False`, so a variable already in the environment wins. `config/tests/test_settings_env.py` proves this.
-   - **If `dbinfo` prints `localhost`, stop.** The variable wasn't exported.
+   - **`dbinfo` must print the `ep-….neon.tech` host.** If it prints `localhost`, stop: the variable wasn't exported.
+   - **`createsuperuser`** creates your login, with admin access.
+   - **The commands have no inline `#` comments**, because interactive zsh doesn't treat `#` as a comment by default (`INTERACTIVE_COMMENTS` is off) and would pass the words as arguments.
 
 5. **Render.**
    1. Go to Dashboard → New → **Blueprint** → choose this repository. Render reads `render.yaml`.
@@ -112,13 +116,17 @@ Do these steps once, in this order.
    The build log shows `Database: ep-….neon.tech…` before migrating.
 
 6. **Check it works.**
-   - `https://shelfwise-api.onrender.com/api/health/` returns `{"status":"ok"}`.
+   - `https://shelfwise-api-et8p.onrender.com/api/health/` returns `{"status":"ok"}`.
    - `POST /api/auth/token/` with your email and password returns tokens.
    - `/admin/` loads with styling.
 
+**The live API is at `https://shelfwise-api-et8p.onrender.com`.** The service is named `shelfwise-api` in `render.yaml`; Render added `-et8p` to the hostname because `shelfwise-api` was taken.
+
 **After that:**
 - **Deploys happen automatically** when CI passes on `main`, and only for changes under `backend/` or to `render.yaml`. Migrations run during the build, so keep them backwards-compatible: if a deploy fails after migrating, the old code keeps running against the new schema.
-- **When the frontend is deployed**, change `CORS_ALLOWED_ORIGINS` in the Render dashboard to its URL.
+- **When the frontend is deployed:**
+  - build it with `VITE_API_BASE_URL=https://shelfwise-api-et8p.onrender.com/api`
+  - change `CORS_ALLOWED_ORIGINS` in the Render dashboard to the frontend's URL
 
 ## Layout
 

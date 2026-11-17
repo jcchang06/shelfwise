@@ -61,7 +61,7 @@ jobs:
         env:
           DJANGO_DEBUG: "false"
           DJANGO_SECRET_KEY: ci-deploy-check-${{ github.run_id }}-not-a-real-secret-0123456789abcdef
-          RENDER_EXTERNAL_HOSTNAME: shelfwise-api.onrender.com
+          RENDER_EXTERNAL_HOSTNAME: shelfwise-api-et8p.onrender.com
 
   frontend:
     name: Frontend (eslint + vitest + build)
