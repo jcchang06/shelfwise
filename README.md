@@ -81,6 +81,9 @@ All endpoints are under `/api/` and return JSON. Authenticated endpoints expect 
 | POST | `/api/logs/` | token | Log `pages_read` for `book_id` (today by default); a second log the same day adds to it |
 | GET / PATCH / DELETE | `/api/logs/{id}/` | token | One log; PATCH sets the day's total or moves it to another day |
 | GET | `/api/stats/?year=` | token | Dashboard numbers for a year: pages per month, books per year, genre mix, ratings |
+| GET / POST | `/api/imports/` | token | Your Goodreads imports; POST a Goodreads export CSV (multipart `file`) to start one |
+| GET | `/api/imports/{id}/` | token | An import's progress and counts |
+| POST | `/api/imports/{id}/process/` | token | Run one ~20-second batch of an import; 409 if another batch is running |
 
 Book data comes from [Google Books](https://books.google.com) and [Open Library](https://openlibrary.org). Search responses name their `source`, so the UI can show the right attribution.
 
@@ -186,6 +189,30 @@ The `shelfwise` static site in `render.yaml` builds `frontend/` and publishes `f
 | Header | `/*` | `Strict-Transport-Security` | `max-age=86400` |
 
 **If the API's URL ever changes,** update `VITE_API_BASE_URL` and the CSP's `connect-src` together in `render.yaml`.
+
+### Nightly jobs (GitHub Actions)
+
+Production has no always-on worker, so scheduled work runs in [`.github/workflows/jobs-nightly.yml`](.github/workflows/jobs-nightly.yml). It runs every night at 02:00 Pacific (03:00 in daylight time) as plain Django management commands against Neon.
+
+For now it runs one job, `run_pending_imports`. That finishes Goodreads imports whose page was closed before they finished, and resumes imports that paused because the day's Google budget ran out.
+
+**Set it up once.** The workflow needs two **repository secrets**.
+
+1. **With the GitHub CLI.** Run these from the repo folder. `gh` prompts for each value and doesn't echo it, so neither value reaches your shell history:
+
+   ```zsh
+   gh secret set DATABASE_URL
+   gh secret set GOOGLE_BOOKS_API_KEY
+   ```
+
+   Or use the web: the repo → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**, once for each.
+   - `DATABASE_URL`: the same Neon **direct** connection string as on Render.
+   - `GOOGLE_BOOKS_API_KEY`: the same key as on Render.
+2. **Check it works.** Go to the repo → **Actions** → **Nightly jobs** → **Run workflow**. The run's **"Show which database this is"** step should print the `ep-….neon.tech` host, and **"Finish or resume unfinished imports"** should print "No unfinished imports." If a secret is missing, the job fails straight away and names it.
+
+**Notes:**
+- **Nightly runs don't count against the free-tier Actions minutes,** because the repo is public.
+- **They wake Neon for a few minutes,** which comes out of its 100 compute-hours a month.
 
 ## Layout
 

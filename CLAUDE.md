@@ -82,6 +82,9 @@ cp .env.example .env                      # once; then set DJANGO_SECRET_KEY
 docker compose up                         # full dev stack: API :8000, frontend :5173
 docker compose exec backend python manage.py migrate
 docker compose exec backend python manage.py createcachetable   # once per database (DB cache)
+docker compose exec backend python manage.py run_import <id>   # process one Goodreads import
+docker compose exec backend python manage.py run_pending_imports  # what the nightly job runs
+docker compose exec backend python manage.py merge_duplicate_books --dry-run  # then --apply <token>
 docker compose exec backend python manage.py makemigrations <app>
 docker compose exec backend pytest        # runs with coverage, fails under 70%
 docker compose exec backend sh -c "ruff check . && ruff format --check ."
