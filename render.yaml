@@ -55,7 +55,7 @@ services:
   # No rootDir: staticPublishPath is relative to the repo root, so build in frontend/
   # and publish frontend/dist explicitly.
   - type: web
-    name: shelfwise
+    name: shelfwise # live at https://shelfwise-nmg7.onrender.com (Render added -nmg7)
     runtime: static
     buildCommand: cd frontend && npm ci && npm run build
     staticPublishPath: frontend/dist

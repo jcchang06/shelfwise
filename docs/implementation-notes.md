@@ -210,3 +210,10 @@ Response: `{year, totals: {pages, finished, dnf, average_rating}, pages_per_mont
 - **Cold starts:** `trackRequest()` marks any request pending for 3+ seconds. `ServerWakingBanner` sits outside the routes, so it also shows **on `/login` and while a stored session is restored**: "Waking up the server — this can take up to a minute." Requests time out after 90 seconds.
 - **Data loading:** TanStack Query. 4xx responses are never retried, network errors and 5xx are retried once, and data is fresh for 30 seconds. Tests mock the API with MSW, and any request without a handler fails the test.
 
+## Phase 5 backlog
+
+Deferred work to pick up in Phase 5 (polish), or sooner if it becomes urgent.
+
+- **Upgrade to Vitest 4.** `npm audit` still reports one moderate advisory in `@vitest/mocker` 3.x ([GHSA-82fw-gwwq-j7x9](https://github.com/advisories/GHSA-82fw-gwwq-j7x9), [GHSA-qxg6-89mg-rqv8](https://github.com/advisories/GHSA-qxg6-89mg-rqv8)), fixed only in Vitest 4.1.12+. It's dev tooling, not in the production bundle, and our plain `vitest run` with jsdom doesn't use the affected mocker plugin, so it isn't urgent. When upgrading:
+  - check that `@testing-library/jest-dom` and the MSW setup still work
+  - remove the `tinypool` override in `frontend/package.json` if Vitest 4 no longer needs it

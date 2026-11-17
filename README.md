@@ -2,6 +2,8 @@
 
 A personal reading tracker with content-based recommendations and new-release email digests.
 
+**Live:** https://shelfwise-nmg7.onrender.com (API: https://shelfwise-api-et8p.onrender.com/api). The API is on Render's free tier, so after 15 idle minutes its first request takes about a minute; the site shows a "waking up" banner meanwhile.
+
 **Status:** Phase 1 (MVP tracker) in progress. The full spec is in [docs/PRD.md](docs/PRD.md).
 
 ## Stack
@@ -164,8 +166,8 @@ The `shelfwise` static site in `render.yaml` builds `frontend/` and publishes `f
 - **Security and caching headers** are set (listed below).
 
 1. **Merge to `main`.** The Blueprint sync creates the new static site; there's nothing to enter. Check Dashboard → Blueprints if it doesn't appear.
-2. **Note the site's URL**, for example `https://shelfwise.onrender.com`. Render may add a suffix, as it did for the API.
-3. **Allow it in the API's CORS settings.** In the **API** service (`shelfwise-api`), go to Environment and set `CORS_ALLOWED_ORIGINS` to `https://<frontend-host>,http://localhost:5173`, keeping localhost for `npm run dev:live`. Saving redeploys the API.
+2. **Note the site's URL.** It's live at **`https://shelfwise-nmg7.onrender.com`**; Render added `-nmg7` because `shelfwise` was taken.
+3. **Allow it in the API's CORS settings.** In the **API** service (`shelfwise-api`), go to Environment and set `CORS_ALLOWED_ORIGINS` to `https://shelfwise-nmg7.onrender.com,http://localhost:5173`, keeping localhost for `npm run dev:live`. Saving redeploys the API.
 4. **Check it works:**
    - log in on the live site
    - reload `/dashboard` directly, which checks the rewrite
