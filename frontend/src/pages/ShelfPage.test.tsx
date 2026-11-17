@@ -161,3 +161,54 @@ describe('shelf page', () => {
     expect(within(nav).getByRole('link', { name: 'Shelf' })).toHaveAttribute('href', '/shelf');
   });
 });
+
+describe('shelf bar', () => {
+  const bar = () => screen.getByRole('navigation', { name: 'Shelves' });
+
+  it('is on other pages too, one click from any shelf, with none marked current', async () => {
+    const requests = setup(() => [shelfEntry({ status: 'dnf', dnf_reason: 'pacing' })]);
+    renderApp('/search');
+    await screen.findByRole('navigation', { name: 'Main' });
+    const links = within(bar()).getAllByRole('link');
+    expect(links.map((link) => [link.textContent, link.getAttribute('href')])).toEqual([
+      ['Reading', '/shelf?status=reading'],
+      ['Want to read', '/shelf?status=want_to_read'],
+      ['Finished', '/shelf?status=finished'],
+      ['DNF', '/shelf?status=dnf'],
+    ]);
+    expect(links.some((link) => link.hasAttribute('aria-current'))).toBe(false);
+
+    await userEvent.setup().click(within(bar()).getByRole('link', { name: 'DNF' }));
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Your shelf: Did not finish' }),
+    ).toBeInTheDocument();
+    expect(requests[requests.length - 1].searchParams.get('status')).toBe('dnf');
+  });
+
+  it('marks the current shelf and keeps the sort order when switching', async () => {
+    setup(() => []);
+    renderApp('/shelf?status=finished&sort=title');
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Your shelf: Finished' }),
+    ).toBeInTheDocument();
+    expect(within(bar()).getByRole('link', { name: 'Finished' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(within(bar()).getByRole('link', { name: 'Reading' })).toHaveAttribute(
+      'href',
+      '/shelf?status=reading&sort=title',
+    );
+  });
+
+  it('comes right after the main navigation in keyboard order', async () => {
+    setup(() => []);
+    renderApp('/search');
+    const main = await screen.findByRole('navigation', { name: 'Main' });
+    const user = userEvent.setup();
+    within(main).getByRole('link', { name: 'Import' }).focus();
+    await user.tab(); // past "Log out"
+    await user.tab();
+    expect(within(bar()).getByRole('link', { name: 'Reading' })).toHaveFocus();
+  });
+});

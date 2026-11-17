@@ -343,6 +343,13 @@ button:disabled {
   flex-basis: 100%;
 }
 
+/* DNF fields when adding from search: stacked, full width, then the Add button. */
+.add-to-shelf-dnf {
+  flex-basis: 100%;
+  display: grid;
+  gap: 0.5rem;
+}
+
 .finished-on {
   display: inline-flex;
   align-items: center;
@@ -399,24 +406,38 @@ textarea {
   font-size: 1.125rem;
 }
 
-.shelf-tabs {
+/* The four shelves under the header on every logged-in page. */
+.shelf-bar {
+  border-bottom: 1px solid var(--border);
+  padding: 0 1rem;
+}
+
+.shelf-bar ul {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem 1rem;
-  margin-bottom: 1rem;
-  border-bottom: 1px solid var(--border);
+  gap: 0 1.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.shelf-tabs a {
-  padding: 0.5rem 0;
+.shelf-bar a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px; /* touch target */
   color: var(--text-muted);
   text-decoration: none;
+  border-bottom: 3px solid transparent;
 }
 
-.shelf-tabs a[aria-current='page'] {
+.shelf-bar a:hover {
+  color: var(--text);
+}
+
+.shelf-bar a[aria-current='page'] {
   color: var(--text);
   font-weight: 600;
-  border-bottom: 3px solid var(--accent);
+  border-bottom-color: var(--accent);
 }
 
 .shelf-sort {

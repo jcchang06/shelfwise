@@ -259,7 +259,7 @@ describe('adding to the shelf', () => {
     expect(adds).toEqual([{ book_id: 42, status: 'reading' }]);
   });
 
-  it('offers want to read, reading and finished, but not DNF', async () => {
+  it('offers every shelf, DNF included', async () => {
     setup(() => HttpResponse.json(page([result()])));
     renderApp('/search?q=hail');
     const select = await screen.findByRole('combobox', { name: 'Shelf for Project Hail Mary' });
@@ -267,7 +267,94 @@ describe('adding to the shelf', () => {
       within(select)
         .getAllByRole('option')
         .map((o) => o.textContent),
-    ).toEqual(['Want to read', 'Reading', 'Finished']);
+    ).toEqual(['Want to read', 'Reading', 'Finished', 'Did not finish']);
+  });
+
+  it('adds as DNF with only defaults: reason, page and note left out', async () => {
+    setup(() => HttpResponse.json(page([result()])));
+    const adds = captureAdds(() =>
+      HttpResponse.json(entry({ status: 'dnf', dnf_reason: 'not_specified' }), { status: 201 }),
+    );
+    renderApp('/search?q=hail');
+    const user = userEvent.setup();
+    await user.selectOptions(await screen.findByRole('combobox'), 'dnf');
+
+    expect(screen.getByRole('combobox', { name: 'Why did you stop? (optional)' })).toHaveValue('');
+    expect(screen.getByLabelText('Stopped on (optional)')).toHaveValue(localDateISO());
+    expect(screen.getByLabelText('Stopped at page (optional)')).toHaveValue(null); // no logs yet
+    expect(screen.getByLabelText('Note (optional)')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+
+    expect(await screen.findByText('On your shelf · Did not finish')).toBeInTheDocument();
+    expect(adds).toEqual([
+      { source: 'google_books', source_id: 'vol1', status: 'dnf', dnf_at: localDateISO() },
+    ]);
+  });
+
+  it('adds as DNF with a reason, page, date and note', async () => {
+    setup(() => HttpResponse.json(page([result()])));
+    const adds = captureAdds(() =>
+      HttpResponse.json(entry({ status: 'dnf', dnf_reason: 'pacing' }), { status: 201 }),
+    );
+    renderApp('/search?q=hail');
+    const user = userEvent.setup();
+    await user.selectOptions(await screen.findByRole('combobox'), 'dnf');
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Why did you stop? (optional)' }),
+      'pacing',
+    );
+    await user.type(screen.getByLabelText('Stopped at page (optional)'), '45');
+    const date = screen.getByLabelText('Stopped on (optional)');
+    await user.clear(date);
+    await user.type(date, '2026-11-01');
+    await user.type(screen.getByLabelText('Note (optional)'), 'Too slow');
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+
+    expect(await screen.findByText('On your shelf · Did not finish')).toBeInTheDocument();
+    expect(adds).toEqual([
+      {
+        source: 'google_books',
+        source_id: 'vol1',
+        status: 'dnf',
+        dnf_reason: 'pacing',
+        dnf_page: 45,
+        dnf_at: '2026-11-01',
+        dnf_note: 'Too slow',
+      },
+    ]);
+  });
+
+  it('shows an API error on the DNF page field and moves focus there', async () => {
+    setup(() => HttpResponse.json(page([result()])));
+    captureAdds(() =>
+      HttpResponse.json({ dnf_page: ['This book has only 496 pages.'] }, { status: 400 }),
+    );
+    renderApp('/search?q=hail');
+    const user = userEvent.setup();
+    await user.selectOptions(await screen.findByRole('combobox'), 'dnf');
+    const pageField = screen.getByLabelText('Stopped at page (optional)');
+    await user.type(pageField, '900');
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+
+    await waitFor(() => expect(pageField).toHaveFocus());
+    expect(pageField).toHaveAccessibleDescription('This book has only 496 pages.');
+    expect(screen.getByRole('button', { name: 'Add' })).toBeEnabled();
+  });
+
+  it('rejects a future DNF date without a request', async () => {
+    setup(() => HttpResponse.json(page([result()])));
+    const adds = captureAdds();
+    renderApp('/search?q=hail');
+    const user = userEvent.setup();
+    await user.selectOptions(await screen.findByRole('combobox'), 'dnf');
+    const date = screen.getByLabelText('Stopped on (optional)');
+    await user.clear(date);
+    await user.type(date, '2999-01-01');
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+
+    expect(date).toHaveAccessibleDescription("This date can't be in the future.");
+    expect(date).toHaveFocus();
+    expect(adds).toHaveLength(0);
   });
 
   it('sends the finished-on date, defaulting to today', async () => {
