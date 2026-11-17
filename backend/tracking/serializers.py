@@ -4,7 +4,7 @@ from rest_framework import serializers
 
 from catalog.serializers import SaveBookSerializer
 
-from .models import UserBook
+from .models import ReadingLog, UserBook
 
 
 class StrictFieldsMixin:
@@ -108,3 +108,36 @@ class UserBookSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = fields
+
+
+# --- Page logs (T-3) ----------------------------------------------------------
+
+
+class LogCreateSerializer(StrictFieldsMixin, serializers.Serializer):
+    book_id = serializers.IntegerField(min_value=1)
+    # The per-day cap (MAX_PAGES_PER_DAY) is a business rule checked in reading_logs.py.
+    pages_read = serializers.IntegerField(min_value=1)
+    log_date = serializers.DateField(required=False)
+
+
+class LogUpdateSerializer(StrictFieldsMixin, serializers.Serializer):
+    pages_read = serializers.IntegerField(min_value=1, required=False)
+    log_date = serializers.DateField(required=False)
+
+
+class ReadingLogSerializer(serializers.ModelSerializer):
+    book_id = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = ReadingLog
+        fields = ["id", "book_id", "log_date", "pages_read", "created_at", "updated_at"]
+        read_only_fields = fields
+
+
+class LogShelfEntrySerializer(serializers.Serializer):
+    """The bits of the shelf entry a log write can change, so the UI needn't refetch."""
+
+    id = serializers.IntegerField()
+    status = serializers.CharField()
+    started_at = serializers.DateField(allow_null=True)
+    pages_logged = serializers.IntegerField()
