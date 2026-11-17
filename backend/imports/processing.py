@@ -33,9 +33,10 @@ State = ImportRow.State
 BATCH_ROWS = 200
 LOCK_SECONDS = 120  # longer than any batch; expires on its own if a worker dies
 
-# Rows deleted when an import finishes (PRD privacy). Unmatched rows stay for I-4;
-# failed rows stay so the summary can say why.
-DONE_STATES = (State.CREATED, State.UPDATED, State.SKIPPED)
+# Rows deleted when an import finishes, or when a finished import's row is resolved or
+# dismissed (PRD privacy). Unmatched rows stay for I-4; failed rows stay so the summary can
+# say why.
+DONE_STATES = (State.CREATED, State.UPDATED, State.SKIPPED, State.DISMISSED)
 
 
 class ImportBusyError(Exception):
