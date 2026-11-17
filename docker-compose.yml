@@ -37,10 +37,29 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-shelfwise}:${POSTGRES_PASSWORD:-shelfwise}@postgres:5432/${POSTGRES_DB:-shelfwise}
       REDIS_URL: redis://redis:6379/0
       DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      IMPORTS_USE_CELERY: "true" # hand uploads to the worker service
     volumes:
       - ./backend:/app
     ports:
       - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Local only: runs Goodreads imports in the background (IMPORTS_USE_CELERY). Production
+  # has no worker; there the import page and the nightly GitHub Actions job run them.
+  worker:
+    build: ./backend
+    command: celery -A config.celery worker --loglevel=info --concurrency=1
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-shelfwise}:${POSTGRES_PASSWORD:-shelfwise}@postgres:5432/${POSTGRES_DB:-shelfwise}
+      REDIS_URL: redis://redis:6379/0
+      IMPORTS_USE_CELERY: "true"
+    volumes:
+      - ./backend:/app
     depends_on:
       postgres:
         condition: service_healthy
