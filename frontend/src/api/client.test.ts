@@ -175,3 +175,20 @@ describe('auth and refresh', () => {
     await expect(refreshAccessToken()).resolves.toBe('access-9');
   });
 });
+
+describe('file uploads', () => {
+  it('leaves Content-Type to the browser for FormData', async () => {
+    const { apiPostForm } = await import('./client');
+    let contentType: string | null = null;
+    server.use(
+      http.post(api('/imports/'), ({ request }) => {
+        contentType = request.headers.get('Content-Type');
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const form = new FormData();
+    form.append('file', new File(['a,b\n'], 'x.csv'));
+    await apiPostForm('/imports/', form, { auth: false });
+    expect(contentType).toMatch(/^multipart\/form-data; boundary=/);
+  });
+});
