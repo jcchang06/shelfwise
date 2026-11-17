@@ -256,5 +256,9 @@ LOGGING = {
     "root": {"handlers": ["console"], "level": env.str("LOG_LEVEL", default="INFO")},
     "loggers": {
         "django": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        # urllib3 logs each retry with the full request URL, query string included: the
+        # Google API key and the ISBNs being looked up. Our own warnings (http.py) log the
+        # URL without its query, so only urllib3's errors are let through.
+        "urllib3": {"level": "ERROR"},
     },
 }
