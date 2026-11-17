@@ -327,7 +327,7 @@ describe('progress', () => {
     expect(calls.process).toBe(2);
   });
 
-  it('links to the DNF shelf when imported DNFs still have the placeholder reason', async () => {
+  it('links to the DNF shelf when imported DNFs have no reason yet', async () => {
     setup({
       start: anImport({
         status: 'done',
@@ -337,9 +337,7 @@ describe('progress', () => {
       }),
     });
     renderApp('/import/5');
-    expect(
-      await screen.findByText(/3 imported DNFs still have the placeholder reason/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/3 imported DNFs have no reason yet/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Set reasons on your DNF shelf' })).toHaveAttribute(
       'href',
       '/shelf?status=dnf',

@@ -200,6 +200,7 @@ DNF_REASON_WEIGHTS = {
     "content": 0.5,
     "not_in_the_mood": 0.0,
     "other": 0.5,
+    "not_specified": 0.0,  # reason left blank: no penalty
 }
 
 # Upper bound on pages logged for one book on one day (T-3). Catches typos like 3000 for 30.

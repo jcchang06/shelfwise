@@ -30,7 +30,7 @@ Decisions made while building, which aren't in the PRD. These are the source of 
 - **Sources.** Search tries Google Books first. It falls back to Open Library when Google raises an error, times out, is over quota or returns no results. An empty answer from Google still beats an error from Open Library. The code is in `catalog/services/`.
 - **Google request parameters:** `printType=books`, `langRestrict=$BOOK_SEARCH_LANGUAGE` (default `en`), and 20 results per page. A query that is an ISBN-10 or ISBN-13 is sent as `isbn:` to both APIs.
 - **Timeouts and retries:** calls made during a user request get one retry (GET only, on 429 and 5xx) with 3s connect / 5s read timeouts. Background jobs will pass `retries=3`.
-- **Google quota:** a 429, or a 403 with a `*LimitExceeded` reason, sets `google_books:quota_exhausted` in the shared database cache until the next midnight Pacific. While it's set, calls skip Google entirely.
+- **Google quota:** only the daily limit (a `dailyLimitExceeded` reason, a "per day" message, or an older-style 403 with a `*LimitExceeded` reason) sets `google_books:quota_exhausted` in the shared database cache until the next midnight Pacific. While it's set, calls skip Google entirely. Any other 429 is a short-term rate limit; see "Measuring against the real export" below.
 - **Caching:** Django's database cache, which needs `createcachetable`. Search pages are cached for 24 hours. Google volumes and Open Library works are cached for 7 days. Failures are never cached. Tests use locmem.
 - **Cleaning the data:**
   - **Descriptions:** block tags become line breaks, then `strip_tags`, then `html.unescape`.
@@ -108,7 +108,7 @@ Side effects only happen when the status actually changes. Values sent in the re
   - A kept rating can't be changed or cleared during a re-read until the book is finished again.
 - **Reviews** are allowed on any status.
 - **DNF fields** are only accepted when the status after the request is `dnf`. Blank values are accepted as no-ops.
-- **`dnf_reason`** is required for `dnf` and can't be blanked. The database enforces this too.
+- **`dnf_reason` is optional (T-6).** Leaving it out, or sending `""`, while the book is or becomes `dnf` saves `not_specified`, so a DNF row never has an empty reason. The database enforces that, and a second constraint (`user_book_dnf_reason_valid`) allows only the known reasons. `not_specified` has weight 0 in `DNF_REASON_WEIGHTS`, so it never lowers similar books (R-5); a test checks that every reason has a weight.
 - **`dnf_page`** must be no more than the book's `page_count` when that's known. The default worked out from logs is capped rather than rejected.
 - **Dates** (`started_at`, `finished_at`, `dnf_at`) can't be after today.
 - **`started_at` must be on or before `finished_at`**, but this is only checked when the status after the request is `finished`. During a re-read, `finished_at` is still the previous read's date.
@@ -296,7 +296,8 @@ Matching tries the cheapest source first:
 - **`GoodreadsLink(user, goodreads_book_id → user_book, synced_at)`** is unique per user and Goodreads ID. Two Goodreads editions can link to one shelf entry.
 - **A linked entry is updated only if it's unchanged in Shelfwise since the last sync** (`user_book.updated_at <= link.synced_at`). Otherwise the row is `skipped` with "changed in Shelfwise".
 - **A shelf entry that existed before the import** (added by hand) is linked, and only its **empty** fields are filled in.
-- **Imported DNFs get the reason `other` and the note "Imported from Goodreads"**, because the database requires a reason. **The import summary shows how many imported DNFs still have that placeholder reason, with a link to the DNF shelf**, so you can set real ones (they affect R-5).
+- **Imported DNFs get the reason `not_specified`** and no note, because Goodreads has no DNF reason. **The import summary shows how many imported DNFs (entries with a Goodreads link) still have `not_specified`, with a link to the DNF shelf**, so you can set real ones (they affect R-5). The API field is still called `placeholder_dnf_count`.
+- **Earlier imports** used the placeholder `other` + "Imported from Goodreads". Migration `tracking.0003` moves exactly that pair to `not_specified` and clears the note. It uses `QuerySet.update()`, so `updated_at` is unchanged and those entries don't count as "changed in Shelfwise" on a re-import. Reversing it restores the placeholder for linked entries.
 
 ### Unmatched rows (I-4, PR 4: `imports/resolution.py`)
 - **`GET /api/imports/{id}/rows/?state=unmatched|failed`** lists the rows that need attention. Each row has its Goodreads title, author, ISBN, status, rating, date and note (why it didn't match), plus **`search_query`** ("title first-author") to pre-fill the search box.
@@ -315,7 +316,7 @@ Matching tries the cheapest source first:
   - **A pause** shows the reason, "It will continue automatically tonight", and a **try again now** button.
   - **Closing the page** just stops the runner; the nightly job finishes the rest.
   - **There's no "already running" guard,** because StrictMode runs effects twice in development. A duplicate run hits the server's lock (409) and waits.
-- **When it's done,** a summary shows the counts, plus "**N imported DNFs still have the placeholder reason**" with a link to `/shelf?status=dnf`.
+- **When it's done,** a summary shows the counts, plus "**N imported DNFs have no reason yet**" with a link to `/shelf?status=dnf`.
 - **Books that need a match:** each one shows its Goodreads details and the reason. **Find a match** opens a search pre-filled with `search_query`, with Google attribution, a "View on …" link per result and **Use this book**, which resolves with `{book_id}` or `{source, source_id}`. **Dismiss** skips the row. Failed rows are listed with their reasons in a `<details>`.
 - **Uploads** go through `apiPostForm`, and the client no longer sets `Content-Type` for `FormData`, so the browser adds the multipart boundary itself.
 

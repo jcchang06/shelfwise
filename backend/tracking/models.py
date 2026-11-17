@@ -5,6 +5,17 @@ from django.db.models import Q
 from catalog.models import Book
 
 
+class DnfReason(models.TextChoices):
+    WRITING_STYLE = "writing_style", "Writing style"
+    PACING = "pacing", "Pacing"
+    CONTENT = "content", "Content"
+    NOT_MY_GENRE = "not_my_genre", "Not my genre"
+    NOT_IN_THE_MOOD = "not_in_the_mood", "Not in the mood"
+    OTHER = "other", "Other"
+    # Saved when the reason is left blank (T-6); carries no recommendation penalty.
+    NOT_SPECIFIED = "not_specified", "Not specified"
+
+
 class UserBook(models.Model):
     """One book on one user's shelf (T-2), with rating/review (T-4) and DNF details (T-6)."""
 
@@ -14,13 +25,7 @@ class UserBook(models.Model):
         FINISHED = "finished", "Finished"
         DNF = "dnf", "Did not finish"
 
-    class DnfReason(models.TextChoices):
-        WRITING_STYLE = "writing_style", "Writing style"
-        PACING = "pacing", "Pacing"
-        CONTENT = "content", "Content"
-        NOT_MY_GENRE = "not_my_genre", "Not my genre"
-        NOT_IN_THE_MOOD = "not_in_the_mood", "Not in the mood"
-        OTHER = "other", "Other"
+    DnfReason = DnfReason  # UserBook.DnfReason, as before
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="user_books"
@@ -56,6 +61,10 @@ class UserBook(models.Model):
             models.CheckConstraint(
                 name="user_book_dnf_requires_reason",
                 condition=~Q(status="dnf") | ~Q(dnf_reason=""),
+            ),
+            models.CheckConstraint(
+                name="user_book_dnf_reason_valid",
+                condition=Q(dnf_reason__in=["", *DnfReason.values]),
             ),
         ]
         indexes = [models.Index(fields=["user", "status"], name="user_book_user_status_idx")]

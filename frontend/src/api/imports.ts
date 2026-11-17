@@ -15,7 +15,7 @@ export interface GoodreadsImport {
   skipped_count: number;
   unmatched_count: number;
   failed_count: number;
-  placeholder_dnf_count: number; // imported DNFs still marked "Imported from Goodreads"
+  placeholder_dnf_count: number; // imported DNFs whose reason is still not_specified
   error: string;
   created_at: string;
   finished_at: string | null;

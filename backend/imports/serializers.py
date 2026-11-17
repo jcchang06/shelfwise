@@ -4,7 +4,7 @@ from .models import GoodreadsImport, ImportRow
 
 
 class GoodreadsImportSerializer(serializers.ModelSerializer):
-    # How many imported DNFs still carry the placeholder reason (set by the view).
+    # How many imported DNFs still have no reason, i.e. not_specified (set by the view).
     placeholder_dnf_count = serializers.IntegerField(read_only=True)
 
     class Meta:

@@ -131,9 +131,13 @@ class TestLeavingFinished:
 
 
 class TestToDnf:
-    def test_requires_reason(self):
-        errors = rule_errors(UserBookFactory(status=S.READING), status=S.DNF)
-        assert set(errors) == {"dnf_reason"}
+    def test_blank_reason_is_saved_as_not_specified(self):
+        ub = apply(UserBookFactory(status=S.READING), status=S.DNF)
+        assert ub.dnf_reason == R.NOT_SPECIFIED
+
+    def test_empty_reason_sent_is_also_not_specified(self):
+        ub = apply(UserBookFactory(status=S.READING), status=S.DNF, dnf_reason="")
+        assert ub.dnf_reason == R.NOT_SPECIFIED
 
     def test_defaults(self):
         ub = UserBookFactory(status=S.READING)
@@ -188,8 +192,8 @@ class TestEditingDnf:
         assert (ub.dnf_reason, ub.dnf_note) == (R.NOT_MY_GENRE, "Not for me")
         assert ub.dnf_at == EARLIER  # not reset: the status didn't change
 
-    def test_reason_cannot_be_blanked(self):
-        assert set(rule_errors(dnf_book(), dnf_reason="")) == {"dnf_reason"}
+    def test_blanking_the_reason_makes_it_not_specified(self):
+        assert apply(dnf_book(), dnf_reason="").dnf_reason == R.NOT_SPECIFIED
 
 
 class TestLeavingDnf:
