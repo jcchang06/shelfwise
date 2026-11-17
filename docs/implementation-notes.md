@@ -20,7 +20,10 @@ Decisions made while building, which aren't in the PRD. These are the source of 
 - **Turning off sign-up:** setting `ALLOW_SIGNUP=false` makes registration return 403. Set it in production once your account exists.
 - **Rate limit:** sign-up, login and refresh share an `auth` limit set by `AUTH_THROTTLE_RATE` (default 10 per minute).
 - **Token lifetimes:** access tokens last 15 minutes and refresh tokens 7 days. Both are set by environment variables.
-- **No server-side logout yet.** The frontend logs out by discarding its tokens. Revoking tokens on the server would need simplejwt's `token_blacklist` app, which adds a migration. Revisit it if a public beta happens.
+- **Refresh token rotation is on** (`ROTATE_REFRESH_TOKENS`). Each `POST /api/auth/token/refresh/` returns a new refresh token along with the access token, so daily use keeps sliding the 7-day window forward instead of forcing a weekly re-login. The frontend must save the new refresh token from every refresh response.
+- **No blacklist in v1, so old refresh tokens stay valid until they expire.** Rotation issues new tokens but doesn't revoke the old ones. A leaked refresh token works for up to 7 days after it was issued, even if newer ones exist. A test documents this.
+- **No server-side logout.** The frontend logs out by discarding its tokens.
+- **Possible later upgrade:** add simplejwt's `token_blacklist` app, which is a migration, with `BLACKLIST_AFTER_ROTATION = True`, plus a `POST /api/auth/logout/` that blacklists the refresh token. That would revoke used and logged-out tokens. Worth doing before a public beta.
 
 ## C-1 / C-2: Book search and catalog save (decided Nov 16, 2026)
 
@@ -156,4 +159,30 @@ All are under `/api/logs/`, all require login, and all are filtered to `request.
 
 - **`pages_logged`** on shelf and log responses, and **the DNF page default**, count only logs dated on or after the entry's `started_at`, or all logs if `started_at` is empty. After a re-read, progress starts again from zero instead of going past 100%, and a DNF on the second read doesn't include the first read's pages.
 - **`reading_log_count`** still counts *every* log for the book, because removing the book deletes all of them.
+
+## Frontend foundation (decided Nov 16, 2026)
+
+- **Routes:**
+  - `/login` is public. There's no sign-up page in Phase 1, because production has sign-up turned off.
+  - Everything else sits behind `RequireAuth` and `AppShell` (skip link, navigation, `<main id="main">`).
+  - Logged-out visitors go to `/login` and come back to the page they asked for after logging in.
+  - Unknown paths show a not-found page.
+- **Tokens** (`src/api/tokens.ts`):
+  - **Access token:** **memory only**.
+  - **Refresh token:** **`localStorage`**. Every storage call is wrapped in try/catch, so a blocked-storage browser still works for the life of the tab.
+  - **Why not httpOnly cookies:** the frontend and API are on different `onrender.com` subdomains. `onrender.com` is a public suffix, so a refresh cookie would be third-party and blocked by Safari and Chrome. Revisit with a custom domain.
+  - **Limiting XSS risk:** a strict CSP on the static site, no third-party scripts, and React's escaping.
+- **Refresh** (`src/api/client.ts`):
+  - **On a 401,** one **shared** refresh runs for all waiting requests, the **rotated** refresh token is saved, and the request is retried once.
+  - **After a reload,** with no access token yet, the client refreshes *before* the first request instead of spending a round trip on a guaranteed 401.
+  - **A rejected refresh** (400 or 401) clears the tokens and calls the session-expired handler. The `AuthProvider` clears the query cache and the login page shows "Your session expired."
+  - **A network failure during refresh** keeps the tokens.
+- **Errors** (`src/api/errors.ts`):
+  - **`ApiError`** has `status` (0 for network or timeout), `body` and `kind` (`http` | `network` | `timeout`).
+  - **`fieldErrors()`** turns `{field: [msg]}` into one message per field.
+  - **`formError()`** returns `detail`, `non_field_errors`, a 429, network, timeout or 5xx message, or null when field errors cover everything.
+  - **`conflictId()`** returns the 409 `id` or the log `conflict_id`.
+  - **Forms** link each field's error with `aria-describedby` and `aria-invalid`, plus an error summary with `role="alert"`.
+- **Cold starts:** `trackRequest()` marks any request pending for 3+ seconds. `ServerWakingBanner` sits outside the routes, so it also shows **on `/login` and while a stored session is restored**: "Waking up the server — this can take up to a minute." Requests time out after 90 seconds.
+- **Data loading:** TanStack Query. 4xx responses are never retried, network errors and 5xx are retried once, and data is fresh for 30 seconds. Tests mock the API with MSW, and any request without a handler fails the test.
 
