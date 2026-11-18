@@ -18,6 +18,10 @@ from catalog.seed.readonly import release_connection
 from recommendations.build import compute, read_snapshot, write
 
 
+def _total(effects, attr: str) -> int:
+    return sum(getattr(e, attr) for e in effects)
+
+
 class Command(BaseCommand):
     help = "Rebuild personal picks and similar books from the catalog (TF-IDF)."
 
@@ -48,6 +52,14 @@ class Command(BaseCommand):
                 "(no rated or finished books with text)"
             )
         out(f"Picks written:                  {report.picks}")
+        effects = list(results.boost.values())
+        boosted, in_top = _total(effects, "boosted"), _total(effects, "in_top")
+        moved, entered, left = (_total(effects, a) for a in ("moved", "entered", "left"))
+        params = results.model.params
+        out(
+            f"Series boost ({params.series_boost}): {boosted} books boosted, {in_top} in the "
+            f"top {params.picks}; {moved} picks moved, {entered} entered, {left} left"
+        )
         out(f"Similar-book rows written:      {report.neighbour_rows}")
         out(f"Old runs deleted:               {report.old_runs_deleted}")
         out(

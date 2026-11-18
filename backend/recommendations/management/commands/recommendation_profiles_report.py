@@ -64,6 +64,10 @@ PROFILES = {
 PROFILE_BOOKS = 25
 
 
+def _mean(effects, attr: str) -> float:
+    return sum(getattr(e, attr) for e in effects) / len(effects)
+
+
 class Command(BaseCommand):
     help = "Held-out hit rate and sample picks for judging recommendations (read-only)."
 
@@ -140,6 +144,18 @@ class Command(BaseCommand):
                 out(
                     f"  hits in top {k}: {per_seed}  (average {result.average(k):.1f} = "
                     f"{result.rate(k):.1%} of hidden; random picks ~{result.random_rate(k):.2%})"
+                )
+            if result.boost:
+                b = result.boost
+                boosted, in_top = _mean(b, "boosted"), _mean(b, "in_top")
+                moved, entered, left = (_mean(b, a) for a in ("moved", "entered", "left"))
+                added = ", ".join(
+                    f"top {k} {n:+d}" for k, n in sorted(result.hits_from_boost.items())
+                )
+                out(
+                    f"  series boost {params.series_boost}: {boosted:.1f} books boosted per seed, "
+                    f"{in_top:.1f} of them in the top {max(result.hits)}; {moved:.1f} picks "
+                    f"moved, {entered:.1f} entered, {left:.1f} left; hits it added: {added}"
                 )
             if result.tail_hidden:
                 tails = sum(result.tail_hidden) / len(result.tail_hidden)

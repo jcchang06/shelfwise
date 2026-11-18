@@ -79,6 +79,7 @@ def test_build_command_prints_counts_and_releases_the_connection(catalog, capsys
     assert out.startswith("Database: ") and released == [True]
     assert "Books with text (scored):       12" in out
     assert "Readers with picks:             1" in out
+    assert "Series boost (0.1): 0 books boosted" in out  # no series in this catalog
 
 
 def test_profiles_report_holdout_is_counts_only_and_read_only(catalog, capsys):
@@ -122,3 +123,4 @@ def test_profiles_report_lists_miss_reasons_and_rules_off(catalog, capsys):
     out = capsys.readouterr().out
     assert "Rules off: next-in-series, picture-books" in out
     assert "why targets missed the top 50" in out
+    assert "series boost 0.1:" in out and "hits it added: top 20 +0, top 50 +0" in out
