@@ -235,6 +235,15 @@ Applies to adding from search, the book page's status, details, and rating and r
 - **The book page's "On your shelf · Reading" badge** links to that shelf. The main nav's "Shelf" item still opens Reading.
 - **Cost:** one row (about 44px) on every page, including above the dashboard's quick log. Agreed as acceptable.
 
+## Another copy of a shelved book (T-2, Phase 3)
+
+After the seed, `merge_duplicate_books --dry-run` found one group: "A Court of Frost and Starlight", an Open Library copy from the Goodreads import and a Google copy added later from search, both shelved. To stop that:
+
+- **`shelf_books_by_title_author(user)`** (`tracking/services.py`): the caller's shelf keyed by normalized title + first author (`normalize.title_author_key`, `merge_duplicate_books`' rule). Two queries. Books with no author are left out, since a title alone is too weak.
+- **Search:** a result whose own catalog book isn't on the shelf, but whose title + first author matches a shelved book, gets that book's `book_id` and `shelf`. The UI already shows those as "On your shelf · Status", linked to the shelved copy, with no add form. A search is now a fixed 8 queries.
+- **`POST /api/shelf/`:** adding a book that matches a shelved book the same way is the usual 409 "This book is already on your shelf." with the existing entry's `id`, which the add form already treats as done. This catches clients that skip search. For a source reference, the catalog book is still saved first, so an unshelved duplicate can remain in the catalog, which `merge_duplicate_books` handles.
+- The same title by a different first author is a different book.
+
 ## Shelf filters and sorts (T-2, Phase 3)
 
 - **API:** see the shelf endpoints table. Still a fixed number of queries (count, page, the author prefetch, plus one for the filter author's name); a test checks it with every filter and sort on.

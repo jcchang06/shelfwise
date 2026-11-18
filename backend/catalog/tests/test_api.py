@@ -282,7 +282,42 @@ class TestSearchShelfStatus:
         for item in body["items"][:10]:
             UserBookFactory(user=user, book=BookFactory(google_books_id=item["id"], isbn_13=""))
         mocked.get(GOOGLE_SEARCH_RE, json=body)
-        # catalog ids (google ids, OL keys, ISBNs) + shelf entries; auth is forced
-        with django_assert_max_num_queries(4):
+        # Fixed, whatever the number of results (auth is forced): catalog ids (google ids,
+        # OL keys, ISBNs) 3 + author ids 2 + shelf entries 1 + the shelf's title/author
+        # keys 2 (entries, then their authors).
+        with django_assert_max_num_queries(8):
             results = self.search(client, "dune")
         assert sum(1 for r in results if r["shelf"]) == 10
+
+
+class TestSameBookOnShelf:
+    """Another source or edition of a shelved book shows as on the shelf, and adding it is
+    a 409, so the shelf never gets a second copy (the "A Court of Frost and Starlight" case:
+    an Open Library copy from an import, then the Google one from search)."""
+
+    def test_search_marks_another_copy_of_a_shelved_book(self, client, user, mocked):
+        body = full_google_page()
+        first = body["items"][0]["volumeInfo"]
+        shelved = BookFactory(
+            google_books_id=None,
+            open_library_key="OL22W",
+            isbn_13="",
+            title=f"{first['title']}: A Novel",  # subtitles normalize away
+            authors=[AuthorFactory(name=first["authors"][0].upper())],
+        )
+        entry = UserBookFactory(user=user, book=shelved, status="finished")
+        mocked.get(GOOGLE_SEARCH_RE, json=body)
+        result = self.search(client, "dune")[0]
+        assert result["book_id"] == shelved.pk
+        assert result["shelf"] == {"id": entry.pk, "status": "finished"}
+
+    def test_another_users_shelf_doesnt_count(self, client, user, mocked):
+        body = full_google_page()
+        first = body["items"][0]["volumeInfo"]
+        book = BookFactory(title=first["title"], authors=[AuthorFactory(name=first["authors"][0])])
+        UserBookFactory(book=book)  # someone else's
+        mocked.get(GOOGLE_SEARCH_RE, json=body)
+        assert self.search(client, "dune")[0]["shelf"] is None
+
+    def search(self, client, query):
+        return client.get(reverse("catalog:book-search"), {"q": query}).json()["results"]
