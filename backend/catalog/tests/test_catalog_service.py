@@ -143,7 +143,7 @@ class TestExisting:
             title="Ignored Title",
             description="New description",
             pageCount=496,
-            categories=["Fiction"],
+            categories=["Fiction / Thrillers"],
             publishedDate="2021",
             imageLinks={"thumbnail": "https://img/x"},
             industryIdentifiers=[{"type": "ISBN_13", "identifier": "9780593135204"}],
@@ -153,7 +153,7 @@ class TestExisting:
         assert existing.title == "Kept Title"
         assert existing.description == "New description"
         assert existing.page_count == 496
-        assert existing.genres == ["Fiction"]
+        assert existing.genres == ["Thrillers"]  # "Fiction" is dropped (normalize_genres)
         assert existing.cover_url == "https://img/x"
         assert existing.published_date == dt.date(2021, 1, 1)
 

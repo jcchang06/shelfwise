@@ -34,9 +34,35 @@ class TestGoogleGenres:
     def test_splits_hierarchy_drops_general_and_dedupes(self):
         categories = ["Fiction / Science Fiction / General", "Fiction / Thrillers", "fiction"]
         assert normalize.genres_from_google_categories(categories) == (
-            "Fiction",
             "Science Fiction",
             "Thrillers",
+        )
+
+
+class TestNormalizeGenres:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            (["Fiction, romance, general", "Romance"], ("Romance",)),
+            (["Fiction, Romance, Contemporary"], ("Romance", "Contemporary")),
+            (["Fiction / Science Fiction / General"], ("Science Fiction",)),
+            (["FICTION", "Man-woman relationships, fiction"], ("Man-woman relationships",)),
+            (["fantasy", "FANTASY", "Fantasy"], ("Fantasy",)),  # dedupe ignoring case
+            (["science fiction"], ("Science Fiction",)),  # all lowercase -> Title Case
+            (["LGBTQ+ fiction"], ("LGBTQ+ fiction",)),  # mixed case kept as written
+            (["Accessible book", "Fiction, general", "Nonfiction"], ()),
+            (["Thrillers; Suspense"], ("Thrillers", "Suspense")),
+            (None, ()),
+        ],
+    )
+    def test_cases(self, raw, expected):
+        assert normalize.normalize_genres(raw) == expected
+
+    def test_uses_the_excluded_genres_setting(self, settings):
+        settings.STATS_EXCLUDED_GENRES = ["Romance"]
+        assert normalize.normalize_genres(["Fiction, Romance, Contemporary"]) == (
+            "Fiction",
+            "Contemporary",
         )
 
     def test_none(self):

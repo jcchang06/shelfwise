@@ -45,9 +45,8 @@ def _dedupe(items: Iterable[str]) -> tuple[str, ...]:
 
 
 def genres_from_google_categories(categories: Iterable[str] | None) -> tuple[str, ...]:
-    """["Fiction / Science Fiction / General"] -> ("Fiction", "Science Fiction")."""
-    parts = (clean_text(part) for category in categories or () for part in category.split("/"))
-    return _dedupe(p for p in parts if p and p.casefold() != "general")
+    """["Fiction / Science Fiction / General"] -> ("Science Fiction",)."""
+    return normalize_genres(categories)
 
 
 # Open Library subjects mix genres with catalog bookkeeping. These say nothing about the
@@ -62,9 +61,50 @@ MAX_OPEN_LIBRARY_GENRES = 10
 
 
 def genres_from_open_library_subjects(subjects: Iterable[str] | None) -> tuple[str, ...]:
-    cleaned = (clean_text(s) for s in subjects or ())
-    kept = _dedupe(s for s in cleaned if s and not _OPEN_LIBRARY_NOISE.search(s))
-    return kept[:MAX_OPEN_LIBRARY_GENRES]
+    return normalize_genres(subjects)[:MAX_OPEN_LIBRARY_GENRES]
+
+
+# Subjects and categories are often several genres joined into one string: Library of
+# Congress style "Fiction, romance, general", Google's "Fiction / Romance / Contemporary".
+_GENRE_SEPARATORS = re.compile(r"\s*[,/;]\s*")
+_GENRE_FILLER = frozenset({"general", "etc", "etc."})
+
+
+def _genre_case(piece: str) -> str:
+    """All lowercase or all caps -> Title Case ("science fiction" -> "Science Fiction");
+    mixed case is kept as written ("LGBTQ+ fiction" stays)."""
+    return (
+        " ".join(w[:1].upper() + w[1:].lower() for w in piece.split())
+        if (piece.islower() or piece.isupper())
+        else piece
+    )
+
+
+def normalize_genres(raw: Iterable[str] | None) -> tuple[str, ...]:
+    """Stored genres (C-2, and R-1's TF-IDF): split joined values, drop filler ("General"),
+    catalog noise and STATS_EXCLUDED_GENRES (Fiction, Nonfiction: they match nearly every
+    book), fix all-lowercase or all-caps casing, and dedupe ignoring case (first wins).
+
+    ["Fiction, romance, general", "Romance"] -> ("Romance",)
+    """
+    from django.conf import settings  # this module is otherwise settings-free
+
+    excluded = {g.casefold() for g in settings.STATS_EXCLUDED_GENRES}
+    pieces = (
+        clean_text(piece)
+        for value in raw or ()
+        if isinstance(value, str) and not _OPEN_LIBRARY_NOISE.search(value)
+        for piece in _GENRE_SEPARATORS.split(value)
+    )
+    kept = (
+        _genre_case(piece)
+        for piece in pieces
+        if piece
+        and piece.casefold() not in _GENRE_FILLER
+        and piece.casefold() not in excluded
+        and not _OPEN_LIBRARY_NOISE.search(piece)
+    )
+    return _dedupe(kept)
 
 
 # A single-letter word followed by another single-letter word: the "j " in "j r r tolkien".
