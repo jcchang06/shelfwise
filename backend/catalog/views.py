@@ -8,7 +8,10 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from tracking.services import shelf_entries_for  # per-user; only read to label results
+from tracking.services import (  # per-user; only read to label results
+    shelf_books_by_title_author,
+    shelf_entries_for,
+)
 
 from .models import Author, Book, BookAuthor
 from .serializers import (
@@ -19,6 +22,7 @@ from .serializers import (
     SearchResultSerializer,
     search_result_data,
 )
+from .services import normalize
 from .services.authors import (
     author_ids_for,
     author_works_for,
@@ -70,6 +74,16 @@ class BookSearchView(APIView):
         ids = catalog_ids_for(found.results)
         author_ids = author_ids_for(found.results)
         shelves = shelf_entries_for(request.user, ids)
+        # Another edition or source of a book already on the shelf (same normalized title +
+        # first author) shows as that shelf book, so it isn't added twice.
+        by_name = shelf_books_by_title_author(request.user)
+        for index, result in enumerate(found.results):
+            if shelves.get(ids[index]) is not None or not result.authors:
+                continue
+            match = by_name.get(normalize.title_author_key(result.title, result.authors[0].name))
+            if match:
+                ids[index] = match["book_id"]
+                shelves[match["book_id"]] = {"id": match["id"], "status": match["status"]}
         results = [
             search_result_data(result, book_id, shelves.get(book_id), authors)
             for result, book_id, authors in zip(found.results, ids, author_ids, strict=True)

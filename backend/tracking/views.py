@@ -21,13 +21,14 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from catalog.models import Author, Book, BookAuthor
+from catalog.services import normalize
 from catalog.services.catalog import get_or_create_book
 from catalog.services.types import BookNotFoundError, BookSourceError
 from catalog.views import BookSourceUnavailable
 
 from .models import ReadingLog, UserBook
 from .serializers import AddToShelfSerializer, ShelfChangesSerializer, UserBookSerializer
-from .services import ShelfRuleError, apply_shelf_changes
+from .services import ShelfRuleError, apply_shelf_changes, shelf_books_by_title_author
 from .shelf_sort import with_author_sort_key
 
 ORDERINGS = {
@@ -153,6 +154,9 @@ class ShelfListCreateView(generics.ListCreateAPIView):
         existing = UserBook.objects.filter(user=request.user, book=book).first()
         if existing:
             return self._already_on_shelf(existing.pk)
+        same_book = self._same_book_on_shelf(request.user, book)
+        if same_book:
+            return self._already_on_shelf(same_book)
 
         user_book = UserBook(user=request.user, book=book)
         _apply(user_book, changes)
@@ -183,6 +187,17 @@ class ShelfListCreateView(generics.ListCreateAPIView):
                 "Couldn't reach the book source to add this book. Please try again shortly."
             ) from exc
         return book
+
+    @staticmethod
+    def _same_book_on_shelf(user, book: Book) -> int | None:
+        """The entry for another copy of this book (same normalized title + first author),
+        e.g. the Open Library edition from an import when adding the Google one."""
+        first = book.book_authors.select_related("author").order_by("position").first()
+        if first is None:
+            return None
+        key = normalize.title_author_key(book.title, first.author.name)
+        match = shelf_books_by_title_author(user).get(key)
+        return match["id"] if match else None
 
     @staticmethod
     def _already_on_shelf(user_book_id: int) -> Response:

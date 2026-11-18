@@ -255,6 +255,30 @@ class TestFiltersAndSorts:
 
 
 class TestAdd:
+    def test_adding_another_copy_of_a_shelved_book_is_a_409(self, client, user, no_network):
+        imported = BookFactory(
+            title="A Court of Frost and Starlight",
+            open_library_key="OL22W",
+            authors=[AuthorFactory(name="Sarah J. Maas")],
+        )
+        entry = UserBookFactory(user=user, book=imported)
+        google_copy = BookFactory(
+            title="A Court of Frost and Starlight (A Court of Thorns and Roses)",
+            authors=[AuthorFactory(name="Sarah J Maas")],
+        )
+        response = client.post(SHELF, {"book_id": google_copy.id}, format="json")
+        assert response.status_code == 409
+        assert response.json() == {"detail": "This book is already on your shelf.", "id": entry.id}
+        assert UserBook.objects.filter(user=user).count() == 1
+
+    def test_same_title_by_another_author_is_a_different_book(self, client, user, no_network):
+        UserBookFactory(
+            user=user,
+            book=BookFactory(title="Persuasion", authors=[AuthorFactory(name="Jane Austen")]),
+        )
+        other = BookFactory(title="Persuasion", authors=[AuthorFactory(name="Someone Else")])
+        assert client.post(SHELF, {"book_id": other.id}, format="json").status_code == 201
+
     def test_add_by_book_id_defaults_to_want_to_read(self, client, user, no_network):
         book = BookFactory()
         response = client.post(SHELF, {"book_id": book.id}, format="json")

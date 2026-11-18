@@ -22,8 +22,11 @@ Values sent in the request always win over these defaults.
 import datetime as dt
 from typing import Any
 
-from django.db.models import QuerySet, Sum
+from django.db.models import Prefetch, QuerySet, Sum
 from django.utils import timezone
+
+from catalog.models import BookAuthor
+from catalog.services import normalize
 
 from .models import ReadingLog, UserBook
 
@@ -161,3 +164,28 @@ def shelf_entries_for(user, book_ids) -> dict[int, dict[str, Any]]:
         return {}
     rows = UserBook.objects.filter(user=user, book_id__in=ids).values("id", "book_id", "status")
     return {row["book_id"]: {"id": row["id"], "status": row["status"]} for row in rows}
+
+
+def shelf_books_by_title_author(user) -> dict[tuple[str, str], dict[str, Any]]:
+    """{(title, first author) key: {"book_id", "id", "status"}} for `user`'s shelf, so a
+    search result or an add can be recognised as another copy of a shelved book (same
+    normalized title + first author, as merge_duplicate_books groups them). Two queries."""
+    entries = (
+        UserBook.objects.filter(user=user)
+        .select_related("book")
+        .prefetch_related(
+            Prefetch(
+                "book__book_authors",
+                queryset=BookAuthor.objects.select_related("author").order_by("position"),
+            )
+        )
+        .order_by("created_at", "id")
+    )
+    by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    for entry in entries:
+        links = list(entry.book.book_authors.all())
+        if not links:
+            continue  # without an author, a title alone is too weak to call it the same book
+        key = normalize.title_author_key(entry.book.title, links[0].author.name)
+        by_key.setdefault(key, {"book_id": entry.book_id, "id": entry.pk, "status": entry.status})
+    return by_key

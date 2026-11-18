@@ -169,3 +169,9 @@ def as_isbn_13(value: str) -> str:
     if bare is None:
         return ""
     return bare if len(bare) == 13 else isbn10_to_13(bare)
+
+
+def title_author_key(title: str, first_author: str) -> tuple[str, str]:
+    """The "same book" key: normalized title + first author (merge_duplicate_books' rule).
+    Another edition or source of a book on the shelf has the same key."""
+    return normalize_title(title), normalize_author_name(first_author)
