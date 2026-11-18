@@ -509,6 +509,21 @@ rm dumps/*.txt.gz dumps/*.jsonl.gz                     # about 5 GB; rebuildable
 
 The build reads your Neon shelf for the "my genres" pool, which was empty locally. Shell variables win over `.env` (`overwrite=False`), so the commands use Neon while `DATABASE_URL` is set.
 
+## Genre normalization (C-2, before R-1)
+
+`build_catalog_seed --show-genres` showed joined values stored as one genre ("fiction, romance, general"). Locally, 5,654 of 10,397 books had one.
+
+- **`normalize.normalize_genres()`** is now the one rule for Open Library subjects, Google categories and the seed:
+  1. Split on `,`, `/` and `;`.
+  2. Drop filler ("General", "etc."), catalog noise ("Accessible book", …) and `STATS_EXCLUDED_GENRES` (Fiction, Nonfiction).
+  3. Title Case pieces that are all lowercase or all caps ("science fiction" becomes "Science Fiction"); mixed case is kept as written.
+  4. Dedupe ignoring case, first spelling wins. Open Library still keeps at most 10.
+  - A Library of Congress heading like "Comic books, strips, etc." becomes two genres ("Comic books", "Strips"), an accepted rough edge.
+- **`normalize_genres --dry-run` / `--apply`** re-normalizes stored genres. It prints the database first and reports before and after counts. A second run changes nothing.
+  - **Local catalog** (the Neon one will be close): genres changed on 8,671 books; distinct genres 19,615 → 17,854; tags 80,027 → 75,557; books with a joined value 5,654 → 0; books with no genres 68 → 232. Those 164 had only "Fiction" or "General". R-1 still uses their descriptions.
+  - Most common after: Romance, Contemporary, Children's fiction, Juvenile fiction, Fantasy, History, Biography, Historical, Man-woman relationships, Suspense.
+  - **Production:** after merging, from your shell with the Neon `DATABASE_URL`: `normalize_genres --dry-run`, review, then `--apply`.
+
 ## Phase 5 backlog
 
 Everything deferred so far, in one place, to pick up in Phase 5 (polish) or sooner if it becomes urgent. Each item links back to where it was decided.

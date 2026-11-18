@@ -259,7 +259,7 @@ class TestParseVolume:
         assert [a.name for a in result.authors] == ["Frank Herbert", "Brian Herbert"]
         assert all(a.open_library_key is None for a in result.authors)
         assert result.description == "Spice & sand."
-        assert result.genres == ("Fiction", "Science Fiction")
+        assert result.genres == ("Science Fiction",)  # "Fiction" is dropped
         assert result.page_count == 412
         assert result.published_date == "1965-08"
         assert result.isbn_13 == "9780441013593"
@@ -315,8 +315,12 @@ class TestRecordedResponses:
         categories = load_fixture("google_volume")["volumeInfo"].get("categories", [])
         result = google_books.parse_volume(load_fixture("google_volume"))
         assert result is not None
+        dropped = {"general", "fiction", "nonfiction"}  # filler and STATS_EXCLUDED_GENRES
         expected_parts = {
-            part.strip() for c in categories for part in c.split("/") if part.strip() != "General"
+            part.strip()
+            for c in categories
+            for part in c.split("/")
+            if part.strip().casefold() not in dropped
         }
         assert set(result.genres) == expected_parts
         assert all("/" not in genre for genre in result.genres)
