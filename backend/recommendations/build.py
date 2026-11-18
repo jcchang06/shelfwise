@@ -47,8 +47,9 @@ def read_snapshot() -> Snapshot:
             genres,
             series_name,
             series_number,
+            pages,
         ) in Book.objects.order_by("id").values_list(
-            "id", "title", "description", "genres", "series_name", "series_number"
+            "id", "title", "description", "genres", "series_name", "series_number", "page_count"
         ):
             names = authors.get(book_id, [])
             # Without an author a title alone is too weak to call two books the same one.
@@ -57,7 +58,7 @@ def read_snapshot() -> Snapshot:
                 if names
                 else (normalize.normalize_title(title), f"{NO_AUTHOR}{book_id}")
             )
-            series, number = series_of(title, series_name, series_number)
+            series, number = series_of(title, series_name, series_number, description or "")
             books.append(
                 BookText(
                     id=book_id,
@@ -68,6 +69,7 @@ def read_snapshot() -> Snapshot:
                     key=key,
                     series=series,
                     series_number=number,
+                    page_count=pages,
                 )
             )
         by_id = {b.id: b for b in books}
@@ -77,7 +79,9 @@ def read_snapshot() -> Snapshot:
         ):
             book = by_id[book_id]
             shelves[user_id].append(
-                ShelfItem(book_id, status, rating, reason, book.key, book.series)
+                ShelfItem(
+                    book_id, status, rating, reason, book.key, book.series, book.series_number
+                )
             )
     return Snapshot(books, dict(shelves))
 

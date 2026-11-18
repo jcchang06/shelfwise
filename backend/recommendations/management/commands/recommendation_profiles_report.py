@@ -43,21 +43,29 @@ class Command(BaseCommand):
         parser.add_argument("--seeds", type=int, default=5, help="Random hidden sets to average.")
         parser.add_argument("--genre-weight", type=int, default=Params.genre_weight)
         parser.add_argument("--no-phrases", action="store_true", help="Single words only.")
+        parser.add_argument(
+            "--series-boost", type=float, default=Params.series_boost, help="R-6 next-in-series."
+        )
         parser.add_argument("--profiles", action="store_true", help="Synthetic readers (titles).")
         parser.add_argument("--mine", action="store_true", help="Your own picks (titles).")
 
-    def handle(self, *args, seeds, genre_weight, no_phrases, profiles, mine, **options):
+    def handle(
+        self, *args, seeds, genre_weight, no_phrases, series_boost, profiles, mine, **options
+    ):
         call_command("dbinfo", stdout=self.stdout)
         with read_only_database():
             snapshot = read_snapshot()
             release_connection()
-        params = Params(genre_weight=genre_weight, phrases=not no_phrases)
+        params = Params(
+            genre_weight=genre_weight, phrases=not no_phrases, series_boost=series_boost
+        )
         model = Model(snapshot.books, params)
         weights = settings.DNF_REASON_WEIGHTS
         out = self.stdout.write
         out(
             f"Model: {len(model.books)} books with text, vocabulary {model.vocabulary}, "
-            f"genre weight {genre_weight}, phrases {'on' if params.phrases else 'off'}"
+            f"genre weight {genre_weight}, phrases {'on' if params.phrases else 'off'}, "
+            f"series boost {series_boost}"
         )
         excluded = Counter(reason for reason in model.excluded if reason)
         out(
