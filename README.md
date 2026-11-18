@@ -197,10 +197,11 @@ The `shelfwise` static site in `render.yaml` builds `frontend/` and publishes `f
 
 Production has no always-on worker, so scheduled work runs in [`.github/workflows/jobs-nightly.yml`](.github/workflows/jobs-nightly.yml). It runs every night at 02:00 Pacific (03:00 in daylight time) as plain Django management commands against Neon.
 
-It runs two jobs, one after the other:
+It runs three jobs, one after the other:
 
 1. **`run_pending_imports`** finishes Goodreads imports whose page was closed before they finished, and resumes imports that paused because the day's Google budget ran out.
 2. **`enrich_books`** fills in missing descriptions and genres from Open Library (up to 15 minutes a night), then prints how many books still have none. It runs even if the imports job failed, and never at the same time, since both call Open Library. It uses only `DATABASE_URL`.
+3. **`build_recommendations`** rebuilds personal picks and "more like this" from the catalog (TF-IDF, under a minute). It runs after enrichment, even if an earlier job failed, and also uses only `DATABASE_URL`.
 
 **Set it up once.** The workflow needs two **repository secrets**.
 

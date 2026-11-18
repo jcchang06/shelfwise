@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     "catalog",
     "tracking",
     "imports",
+    "recommendations",
 ]
 
 MIDDLEWARE = [

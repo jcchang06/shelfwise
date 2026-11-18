@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
-COPY requirements.txt requirements-dev.txt ./
+COPY requirements.txt requirements-dev.txt requirements-jobs.txt ./
 RUN pip install -r requirements-dev.txt
 
 COPY . .

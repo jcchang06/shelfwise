@@ -1,0 +1,8 @@
+# Nightly recommendation build only (R-1): installed by the nightly workflow and CI, not
+# by the Render web service, which only reads the precomputed tables. Pinned; each release
+# at least two weeks old when added.
+scikit-learn==1.9.1
+numpy==2.5.4
+scipy==1.18.1
+joblib==1.6.0
+threadpoolctl==3.7.0
