@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import { AuthorNames } from '../components/AuthorNames';
+import { MoreLikeThis } from '../components/MoreLikeThis';
 import { MetaParts } from '../components/MetaParts';
 import { shelfPath } from '../shelves';
 import { bookSourceLink } from '../api/books';
@@ -158,6 +159,7 @@ export default function BookPage() {
           </>
         ) : null}
       </section>
+      <MoreLikeThis bookId={book.data.id} onAdded={setAnnouncement} />
     </>
   );
 }

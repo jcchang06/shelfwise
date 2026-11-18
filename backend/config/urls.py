@@ -5,6 +5,8 @@ from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from recommendations.views import SimilarBooksView
+
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
@@ -17,7 +19,9 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/health/", health, name="health"),
     path("api/auth/", include("accounts.urls")),
+    path("api/books/<int:pk>/similar/", SimilarBooksView.as_view(), name="book-similar"),
     path("api/books/", include("catalog.urls")),
+    path("api/recommendations/", include("recommendations.urls")),
     path("api/authors/", include("catalog.author_urls")),
     path("api/shelf/", include("tracking.urls")),
     path("api/logs/", include("tracking.log_urls")),

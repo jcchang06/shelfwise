@@ -11,6 +11,7 @@ import ImportDetailPage from './pages/ImportDetailPage';
 import ImportPage from './pages/ImportPage';
 import LoginPage from './pages/LoginPage';
 import NotFoundPage from './pages/NotFoundPage';
+import RecommendationsPage from './pages/RecommendationsPage';
 import SearchPage from './pages/SearchPage';
 import ShelfPage from './pages/ShelfPage';
 
@@ -32,6 +33,7 @@ export default function App() {
               <Route path="/shelf" element={<ShelfPage />} />
               <Route path="/books/:id" element={<BookPage />} />
               <Route path="/authors/:id" element={<AuthorPage />} />
+              <Route path="/for-you" element={<RecommendationsPage />} />
               <Route path="/import" element={<ImportPage />} />
               <Route path="/import/:id" element={<ImportDetailPage />} />
             </Route>
