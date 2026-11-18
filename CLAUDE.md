@@ -88,6 +88,8 @@ docker compose exec backend python manage.py run_pending_imports  # what the nig
 docker compose exec backend python manage.py merge_duplicate_books --dry-run  # then --apply <token>
 docker compose exec backend python manage.py goodreads_match_report <csv>  # match rate, no shelf changes
 docker compose exec backend python manage.py enrich_books --limit 20  # fill descriptions/genres from Open Library (nightly job)
+docker compose exec backend python manage.py build_recommendations  # nightly TF-IDF picks + similar books (needs requirements-jobs.txt)
+docker compose exec backend python manage.py recommendation_profiles_report  # held-out hit rate (counts); --profiles / --mine print titles, local only
 cd backend && .venv/bin/python manage.py build_catalog_seed --dumps dumps --out dumps/seed.jsonl.gz  # C-3 seed file from Open Library dumps (read-only; counts only)
 cd backend && .venv/bin/python manage.py seed_catalog dumps/seed.jsonl.gz --dry-run  # load the seed (then without --dry-run); --remove --dry-run / --apply <token>
 docker compose exec backend python manage.py makemigrations <app>

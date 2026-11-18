@@ -523,6 +523,42 @@ The build reads your Neon shelf for the "my genres" pool, which was empty locall
   - **Local catalog** (the Neon one will be close): genres changed on 8,671 books; distinct genres 19,615 → 17,854; tags 80,027 → 75,557; books with a joined value 5,654 → 0; books with no genres 68 → 232. Those 164 had only "Fiction" or "General". R-1 still uses their descriptions.
   - Most common after: Romance, Contemporary, Children's fiction, Juvenile fiction, Fantasy, History, Biography, Historical, Man-woman relationships, Suspense.
   - **Production:** after merging, from your shell with the Neon `DATABASE_URL`: `normalize_genres --dry-run`, review, then `--apply`.
+  - **Applied on Neon** (Nov 17, 2026): 8,677 books updated; distinct genres 19,612 → 17,850; joined values 5,648 → 0; books with no genres 68 → 235.
+- **"Fiction" and "Nonfiction" are dropped from storage, not only from the stats chart.** `STATS_EXCLUDED_GENRES` was meant as a display filter, but normalization applies it to stored genres too. The raw values can't be restored cheaply: the dumps are deleted and refetching about 10,000 works would take about 6 hours.
+  - **Decision: keep it that way**, so the whole catalog follows one rule.
+  - **Impact on R-1 is small:** "Fiction" is on most books, so IDF weights it near zero, and `max_df=0.5` drops it from the vocabulary anyway. "Nonfiction" did carry a fiction/nonfiction signal, but descriptions and specific genres (History, Biography, Memoir) carry most of it. The held-out check can show if a derived signal is ever worth adding.
+
+## R-1, R-2, R-3, R-5: Nightly recommendations (Phase 3 recommendations PR 1)
+
+`recommendations` app: `engine.py` (pure computation), `build.py` (database side), `build_recommendations` (nightly) and `recommendation_profiles_report` (evaluation). **Decisions** (Nov 17, 2026): all six from the plan.
+
+- **Text per book:** title, description, and each genre as one token (`genre_romance`) repeated 3 times, so a shared genre weighs about as much as a few shared description words.
+  - TF-IDF settings: English stop words removed; single words plus two-word phrases ("slow burn", "enemies to lovers"); `min_df=2`, `max_df=0.5`, sublinear term frequency, at most 100,000 terms.
+  - Rows are L2-normalized, so a dot product is cosine similarity.
+  - Books with no description and no genres are left out.
+- **Personal picks (R-2), top 20:**
+  - **Score:** the mean of a book's 3 highest similarities to the reader's liked books, which handles mixed tastes better than one averaged profile. Minus the DNF penalty (R-5): the largest of `DNF_REASON_WEIGHTS[reason]` × similarity over the reader's DNFs.
+  - **Liked books:** 4★+. With fewer than 5, also finished books rated 3★+ or unrated, and books being read now.
+  - **Never picked:** a shelved book (any status), another copy of one (title + first author key), or a second copy within the picks.
+  - **At most 2 per author.**
+  - Each pick stores `because_of`, the liked book it's most similar to, for R-4.
+- **More like this (R-3):** top 10 per book, never the book itself or another copy of it.
+- **Tables:** `RecommendationRun`, `Recommendation` (run, user, book, rank, score, because_of) and `SimilarBook` (run, book, similar, rank, score).
+  - A run's rows are written in batches of 2,000, then the run is marked finished. Readers use `RecommendationRun.latest_finished()`, so they never see a half-written set.
+  - Older runs' rows are then deleted with a plain DELETE per table, not a per-row cascade.
+- **`build_recommendations`** (the third nightly job, `needs: enrich`):
+  - Reads a snapshot in one short transaction (books, first authors, shelves), then releases the connection, computes, and writes. This follows the Neon idle-in-transaction lesson.
+  - Prints counts only. Needs `requirements-jobs.txt` (scikit-learn 1.9.1, numpy 2.5.4, scipy 1.18.1), which the nightly workflow and CI install; the Render web service doesn't.
+  - **Local run** (10,397 books): 10,367 scored, a vocabulary of 97,638 terms, 103,660 similar-book rows. Read 0.2 s, compute 3.0 s, write 2.7 s.
+  - Needs about 0.6 to 0.7 GB of memory, so Actions only, never Render.
+- **`recommendation_profiles_report`** (read-only, like the seed build):
+  - **Held-out check, counts only:** for each reader with 10+ books at 4★+, hide a random 20% (one fixed seed per round, `--seeds`, default 5), build picks from the rest with the hidden books treated as unread, and count how many come back in the top 20 and top 50. It reports each seed, the average, and what random picks would score.
+  - **Tuning knobs:** `--genre-weight N` and `--no-phrases`.
+  - **`--profiles`:** three synthetic readers (romance; fantasy and science fiction; history and biography), 25 random catalog books each, with the share of picks matching the profile's genres. Locally: 20/20, 17/20 and 15/20.
+  - **`--mine`:** your own picks. `--profiles` and `--mine` print titles, for local use only.
+- **Quality follow-ups seen in the synthetic picks:**
+  - Open Library genre noise that `normalize_genres` doesn't catch yet ("Series:…", "Reading Level-Grade 7", "Translations into Russian").
+  - Some works whose main title isn't English (the seed required only an English edition).
 
 ## Phase 5 backlog
 

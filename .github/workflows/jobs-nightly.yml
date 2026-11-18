@@ -88,3 +88,38 @@ jobs:
         run: python manage.py dbinfo
       - name: Fill in missing descriptions and genres (aggregate counts only)
         run: python manage.py enrich_books --max-minutes 15
+
+  recommendations:
+    name: Rebuild recommendations
+    # After enrichment, so tonight's descriptions and genres are included. Runs even if an
+    # earlier job failed: yesterday's catalog still makes useful picks.
+    needs: enrich
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DJANGO_SECRET_KEY: nightly-job-${{ github.run_id }}-${{ github.run_attempt }}
+      DJANGO_DEBUG: "false"
+      TIME_ZONE: America/Los_Angeles
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the repository secret is set
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::Missing repository secret: DATABASE_URL (README → Deploy → Nightly jobs)"
+            exit 1
+          fi
+      - uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - run: pip install -r requirements.txt -r requirements-jobs.txt
+      - name: Show which database this is (host only, never the password)
+        run: python manage.py dbinfo
+      - name: Rebuild picks and similar books (counts only)
+        run: python manage.py build_recommendations
