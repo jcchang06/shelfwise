@@ -560,6 +560,36 @@ The build reads your Neon shelf for the "my genres" pool, which was empty locall
   - Open Library genre noise that `normalize_genres` doesn't catch yet ("Series:…", "Reading Level-Grade 7", "Translations into Russian").
   - Some works whose main title isn't English (the seed required only an English edition).
 
+### Tuning and the first real picks (recommendations PR 1b)
+
+**Held-out check on Neon** (Nov 17, 2026): 43 books at 4★+, 9 hidden per seed, 5 seeds.
+
+| Genre weight | Phrases | Hits in top 20 | Hits in top 50 |
+| --- | --- | --- | --- |
+| 1 | on | 3.4 (37.8%) | 4.4 (48.9%) |
+| 3 | on | 2.6 (28.9%) | 3.6 (40.0%) |
+| 5 | on | 2.2 (24.4%) | 3.6 (40.0%) |
+| 3 | off | 2.6 (28.9%) | 3.2 (35.6%) |
+
+Random picks would score about 0.20% and 0.50%. Weight 1 beat 3 in every seed, so **the default is genre weight 1 with phrases on**. Weights 0 and 2 are still to try (`--genre-weight 0` leaves genre tokens out entirely). The synthetic readers' genre share falls with weight 1 (17, 14 and 11 of 20, down from 20, 17 and 15). That's expected, since genres count for less, and the held-out number on real ratings is the better signal.
+
+**Six fixes after `--mine`** (`recommendations/candidates.py`, measured on the 9,997 seeded books first):
+
+1. **Box sets and omnibuses are never recommended or shown as similar** (57 locally): titles joined with " / ", "box set", "omnibus", "collection", a title ending in "Trilogy" or "Quartet", "(series)", or a numbered range in a series context ("#1-2", "Books 1-3", "(… 1-7)").
+   - Not caught: "9-11" (a title, not a range), and "(Matched Trilogy, Book 3)" or "Thrawn Trilogy - Heir to the Empire" (single novels).
+   - Known miss: a single novel in a "… Collection" imprint, such as a Large Print Collection.
+2. **"Shadow and Bone" got through because your library copy has no linked author.** Its key was title-only, so it couldn't match the seeded copy by Leigh Bardugo. A shelved book with no author now also blocks candidates with the same normalized title. Only 2 of the 400 library books locally have no author.
+3. **Non-books are never recommended** (8 locally): poster, colouring, sticker, activity and puzzle books, calendars, planners, guided journals, workbooks, official companions and guides, titles ending in "Companion", and the "Fan fiction" genre. "Guide" alone isn't enough ("A Good Girl's Guide to Murder" is a novel). Known casualty: "Fangirl", a novel tagged fan fiction.
+4. **Non-English works are never recommended** (326 locally). A title with a foreign cue (der, das, und, los, les, il, el, …, or ä ö ü ß ñ) and no English function word is excluded, as is a work whose description is clearly another language. "Fear and Loathing in Las Vegas", "In Search of Schrödinger's Cat" and "Die Trying" stay in.
+   - Some English titles are excluded because their only description is German or Spanish ("Rising Tides", "The Ugly Truth"). That blurb would be shown, and it matches nothing for an English reader. Known casualty: "El Deafo".
+   - An English edition's title isn't available (the dumps only had the work's main title), so excluding was the option.
+5. **The cap of 2 per author counts every credited author,** normalized, not just the first. Illustrators and co-authors listed first were letting about 5 Rowling-related picks through.
+6. **A later book of a series you haven't started becomes that series' first book** in the catalog, in the same place; if there is no first book in the catalog, it's skipped.
+   - The series comes from the catalog's series fields (your Goodreads import), else the title's marker ("(The Dresden Files, Book 7)", "(Cirque Du Freak #1)").
+   - **Limitation:** only 117 local books have a known series. A seeded book with no marker in its title ("A Clash of Kings") isn't recognised. Description cues were too noisy to use: "a second novel" flagged "A Fine Balance".
+
+Both commands print how many books each rule excludes. More-like-this lists skip excluded books, so a few books have fewer than 10 neighbours: 101,683 rows locally, down from 103,660.
+
 ## Phase 5 backlog
 
 Everything deferred so far, in one place, to pick up in Phase 5 (polish) or sooner if it becomes urgent. Each item links back to where it was decided.
@@ -575,6 +605,8 @@ Everything deferred so far, in one place, to pick up in Phase 5 (polish) or soon
 - **History of each read** (T-2, T-5). v1 keeps one set of dates per book, so a re-read overwrites `started_at` and `finished_at`, and a book finished twice counts once, in its latest year. A `reads` table would give accurate re-read stats.
 - **Indexed `name_normalized` on `Author`** (C-1 / C-2). Author name matching scans the table with a Postgres expression. Add the indexed column, which is a migration, if the C-3 catalog seed makes saves slow.
 - **Reading streak** (Dashboard). Consecutive days with at least one reading log, for the goal-setter persona. It's not part of T-5, so the Phase 1 dashboard shows totals only. It can be worked out from `ReadingLog.log_date` in `TIME_ZONE`, added to `/api/stats/`, and shown as a stat tile.
+- **More Open Library genre noise** (C-2, R-1). `normalize_genres` doesn't yet drop series and reading-level tags stored as genres ("Series:Lightlark", "Serie:Kings_of_Sin", "Reading Level-Grade 7", "Translations into Russian"). Add them to the noise filter, then rerun `normalize_genres --dry-run` / `--apply` and recheck the held-out numbers.
+- **Repair books with no linked author** (C-2). An import can save a catalog book without its author (2 of 400 locally). Recommendations work around it by title, but author pages and dedupe miss them. A dry-run command could relink authors from the source record.
 - **Merge duplicate authors** (C-5, C-6). The same person can be two `Author` rows under different spellings ("M. Vell" and "Mara Vell"). Only one can hold the Open Library key, which is unique, so the nightly job counts these as `duplicate_authors` and leaves them. Author pages still find the key through the other row's work. A `merge_duplicate_authors --dry-run`, like `merge_duplicate_books`, would move `BookAuthor` links to one row.
 - **Sign-up page** (Frontend foundation). Production has sign-up turned off (`ALLOW_SIGNUP=false`) and v1 has one user. Add the page only if a public beta happens.
 

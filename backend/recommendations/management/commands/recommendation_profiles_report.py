@@ -17,6 +17,7 @@ Both print titles: for your eyes only, never paste them into PRs or logs.
 """
 
 import random
+from collections import Counter
 
 from django.conf import settings
 from django.core.management import call_command
@@ -57,6 +58,12 @@ class Command(BaseCommand):
         out(
             f"Model: {len(model.books)} books with text, vocabulary {model.vocabulary}, "
             f"genre weight {genre_weight}, phrases {'on' if params.phrases else 'off'}"
+        )
+        excluded = Counter(reason for reason in model.excluded if reason)
+        out(
+            "Never recommended: "
+            + ", ".join(f"{reason} {count}" for reason, count in sorted(excluded.items()))
+            + f"; books with a known series: {sum(1 for b in model.books if b.series)}"
         )
 
         readers = 0
