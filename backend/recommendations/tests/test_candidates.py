@@ -133,7 +133,7 @@ def test_picture_book(genres, pages, expected):
 
 def test_exclusion_reasons_for_the_reported_misses():
     assert candidates.exclusion_reason("(Airhead #1)", "", ()) == "marker_only"
-    assert candidates.exclusion_reason("密やかな結晶", "", ()) == "foreign"
+    assert candidates.exclusion_reason("密やかな結晶", "", ()) == "non_latin"
     assert (
         candidates.exclusion_reason(
             "Bartholomew and the oobleck", "", ("Juvenile fiction", "Stories in rhyme"), 48

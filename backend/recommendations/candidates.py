@@ -117,21 +117,31 @@ def is_picture_book(genres: tuple[str, ...], page_count: int | None) -> bool:
     return short and any(_JUVENILE_GENRES.search(g) for g in genres)
 
 
+EXCLUSION_RULES = ("marker_only", "omnibus", "not_a_book", "picture_book", "non_latin", "foreign")
+
+
+def exclusion_reasons(
+    title: str, description: str, genres: tuple[str, ...], page_count: int | None = None
+) -> tuple[str, ...]:
+    """Every rule the book fails, in EXCLUSION_RULES order (so one rule can be switched
+    off to measure it without the book slipping past another)."""
+    checks = {
+        "marker_only": is_marker_only(title),
+        "omnibus": is_omnibus(title),
+        "not_a_book": is_not_a_book(title, genres),
+        "picture_book": is_picture_book(genres, page_count),
+        "non_latin": is_non_latin(title),
+        "foreign": is_foreign(title, description),
+    }
+    return tuple(rule for rule in EXCLUSION_RULES if checks[rule])
+
+
 def exclusion_reason(
     title: str, description: str, genres: tuple[str, ...], page_count: int | None = None
 ) -> str | None:
-    """Why a book can't be recommended, or None."""
-    if is_marker_only(title):
-        return "marker_only"
-    if is_omnibus(title):
-        return "omnibus"
-    if is_not_a_book(title, genres):
-        return "not_a_book"
-    if is_picture_book(genres, page_count):
-        return "picture_book"
-    if is_non_latin(title) or is_foreign(title, description):
-        return "foreign"
-    return None
+    """Why a book can't be recommended (the first rule it fails), or None."""
+    reasons = exclusion_reasons(title, description, genres, page_count)
+    return reasons[0] if reasons else None
 
 
 def series_key(name: str) -> str:
@@ -202,25 +212,37 @@ def series_from_description(description: str) -> tuple[str, float | None]:
     return (series_key(name), float(number)) if name else ("", None)
 
 
+SERIES_SOURCES = ("catalog", "marker", "description", "title_number")
+
+
+def series_with_source(
+    title: str, series_name: str, series_number, description: str = ""
+) -> tuple[str, float | None, str]:
+    """(series key, number, source) from, in order: the catalog's series fields
+    ("catalog"), the title's marker ("marker"), a description phrase naming the series and
+    the number ("description"), or a trailing "Book N" / "#N" in the title ("title_number",
+    series name unknown: key "?"). ("", None, "") otherwise."""
+    if series_name:
+        number = float(series_number) if series_number is not None else None
+        return series_key(series_name), number, "catalog"
+    match = _SERIES_MARKER.search(title)
+    if match:
+        return series_key(match.group(1)), float(match.group(2)), "marker"
+    key, number = series_from_description(description)
+    if key:
+        return key, number, "description"
+    numbered = _TITLE_NUMBER.search(title)
+    if numbered:
+        return UNKNOWN_SERIES, float(numbered.group(1)), "title_number"
+    return "", None, ""
+
+
 def series_of(
     title: str, series_name: str, series_number, description: str = ""
 ) -> tuple[str, float | None]:
-    """(series key, number) from, in order: the catalog's series fields, the title's
-    marker, a description phrase naming the series and the number, or a trailing
-    "Book N" / "#N" in the title (series name unknown: key "?"). ("", None) otherwise."""
-    if series_name:
-        number = float(series_number) if series_number is not None else None
-        return series_key(series_name), number
-    match = _SERIES_MARKER.search(title)
-    if match:
-        return series_key(match.group(1)), float(match.group(2))
-    found = series_from_description(description)
-    if found[0]:
-        return found
-    numbered = _TITLE_NUMBER.search(title)
-    if numbered:
-        return UNKNOWN_SERIES, float(numbered.group(1))
-    return "", None
+    """series_with_source without the source."""
+    key, number, _ = series_with_source(title, series_name, series_number, description)
+    return key, number
 
 
 # A book known to be numbered in some series whose name we don't know.

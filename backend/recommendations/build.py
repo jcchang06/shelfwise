@@ -17,7 +17,7 @@ from catalog.models import Book, BookAuthor
 from catalog.services import normalize
 from tracking.models import UserBook
 
-from .candidates import series_of
+from .candidates import series_with_source
 from .engine import NO_AUTHOR, BookText, Model, Params, Pick, ShelfItem
 from .models import Recommendation, RecommendationRun, SimilarBook
 
@@ -58,7 +58,9 @@ def read_snapshot() -> Snapshot:
                 if names
                 else (normalize.normalize_title(title), f"{NO_AUTHOR}{book_id}")
             )
-            series, number = series_of(title, series_name, series_number, description or "")
+            series, number, source = series_with_source(
+                title, series_name, series_number, description or ""
+            )
             books.append(
                 BookText(
                     id=book_id,
@@ -70,6 +72,7 @@ def read_snapshot() -> Snapshot:
                     series=series,
                     series_number=number,
                     page_count=pages,
+                    series_source=source,
                 )
             )
         by_id = {b.id: b for b in books}
