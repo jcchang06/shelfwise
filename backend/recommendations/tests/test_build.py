@@ -104,3 +104,21 @@ def _now():
     from django.utils import timezone
 
     return timezone.now()
+
+
+def test_profiles_report_lists_miss_reasons_and_rules_off(catalog, capsys):
+    reader = UserBookFactory(book=catalog["Fantasy"][0], status="finished", rating=5).user
+    for b in catalog["Fantasy"][1:] + catalog["Romance"][:5]:
+        UserBookFactory(user=reader, book=b, status="finished", rating=5)
+    with connection.cursor() as cursor:
+        cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")  # see the test above
+    call_command(
+        "recommendation_profiles_report",
+        "--seeds",
+        "2",
+        "--no-next-in-series",
+        "--no-picture-books",
+    )
+    out = capsys.readouterr().out
+    assert "Rules off: next-in-series, picture-books" in out
+    assert "why targets missed the top 50" in out

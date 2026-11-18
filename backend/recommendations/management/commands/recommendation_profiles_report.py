@@ -28,6 +28,34 @@ from recommendations.build import read_snapshot
 from recommendations.engine import Model, Params, ShelfItem, holdout
 
 MIN_LIKED_FOR_HOLDOUT = 10
+# --no-<flag> switches off one rule added in #42 (Params field = flag with "_").
+RULE_FLAGS = {
+    "picture-books": "Don't exclude picture books.",
+    "non-latin": "Don't exclude non-Latin titles.",
+    "marker-only": "Don't exclude marker-only titles.",
+    "description-series": "Ignore series found in descriptions.",
+    "title-number-series": "Ignore trailing Book N / #N in titles.",
+    "next-in-series": "Don't limit started series to the next unread book.",
+    "dnf-series": "Don't skip series with a DNF.",
+}
+MISS_REASONS = {
+    "ranked_below": "eligible, but scored below the cut",
+    "not_next_in_series": "started series: not the next unread book",
+    "series_first_book_instead": "unstarted series: replaced by its first book",
+    "series_first_book_missing": "unstarted series, first book not in the catalog",
+    "book_n_skip": "Book N title, series unknown",
+    "dnf_series": "a series with a DNF",
+    "author_cap": "two picks by the same author already",
+    "copy_on_shelf": "another copy of it is on the shelf",
+    "copy_picked": "another copy was picked",
+    "picture_book": "excluded: picture book",
+    "non_latin": "excluded: non-Latin title",
+    "foreign": "excluded: not English",
+    "omnibus": "excluded: box set",
+    "not_a_book": "excluded: not a book",
+    "marker_only": "excluded: marker-only title",
+    "no_text": "no description or genres",
+}
 PROFILES = {
     "romance": {"romance", "contemporary romance", "romantic suspense"},
     "fantasy and science fiction": {"fantasy", "science fiction", "epic fantasy"},
@@ -47,17 +75,29 @@ class Command(BaseCommand):
             "--series-boost", type=float, default=Params.series_boost, help="R-6 next-in-series."
         )
         parser.add_argument("--profiles", action="store_true", help="Synthetic readers (titles).")
+        # Switch off one #42 rule at a time to measure it.
+        for flag, help_text in RULE_FLAGS.items():
+            parser.add_argument(f"--no-{flag}", action="store_true", help=help_text)
+        parser.add_argument(
+            "--no-series-tails",
+            action="store_true",
+            help="Hide random books only (the old simulation; can make impossible readers).",
+        )
         parser.add_argument("--mine", action="store_true", help="Your own picks (titles).")
 
     def handle(
         self, *args, seeds, genre_weight, no_phrases, series_boost, profiles, mine, **options
     ):
+        off = {flag for flag in RULE_FLAGS if options[f"no_{flag.replace('-', '_')}"]}
         call_command("dbinfo", stdout=self.stdout)
         with read_only_database():
             snapshot = read_snapshot()
             release_connection()
         params = Params(
-            genre_weight=genre_weight, phrases=not no_phrases, series_boost=series_boost
+            genre_weight=genre_weight,
+            phrases=not no_phrases,
+            series_boost=series_boost,
+            **{flag.replace("-", "_"): False for flag in off},
         )
         model = Model(snapshot.books, params)
         weights = settings.DNF_REASON_WEIGHTS
@@ -66,6 +106,11 @@ class Command(BaseCommand):
             f"Model: {len(model.books)} books with text, vocabulary {model.vocabulary}, "
             f"genre weight {genre_weight}, phrases {'on' if params.phrases else 'off'}, "
             f"series boost {series_boost}"
+        )
+        out(
+            "Rules off: "
+            + (", ".join(sorted(off)) or "none")
+            + ("; random hiding (no series tails)" if options["no_series_tails"] else "")
         )
         excluded = Counter(reason for reason in model.excluded if reason)
         out(
@@ -76,7 +121,13 @@ class Command(BaseCommand):
 
         readers = 0
         for _user_id, shelf in sorted(snapshot.shelves.items()):
-            result = holdout(model, shelf, weights, seeds=list(range(seeds)))
+            result = holdout(
+                model,
+                shelf,
+                weights,
+                seeds=list(range(seeds)),
+                series_tails=not options["no_series_tails"],
+            )
             if result.liked < MIN_LIKED_FOR_HOLDOUT:
                 continue
             readers += 1
@@ -90,6 +141,13 @@ class Command(BaseCommand):
                     f"  hits in top {k}: {per_seed}  (average {result.average(k):.1f} = "
                     f"{result.rate(k):.1%} of hidden; random picks ~{result.random_rate(k):.2%})"
                 )
+            if result.tail_hidden:
+                tails = sum(result.tail_hidden) / len(result.tail_hidden)
+                out(f"  later series books also hidden (not targets): {tails:.1f} per seed")
+            total = sum(result.misses.values())
+            out(f"  why targets missed the top {max(result.hits)} ({total} over all seeds):")
+            for reason, count in result.misses.most_common():
+                out(f"    {reason:<28} {count:>4}  ({MISS_REASONS.get(reason, '')})")
         if not readers:
             out(f"\nNo reader has {MIN_LIKED_FOR_HOLDOUT}+ books at 4+ stars with text yet.")
 

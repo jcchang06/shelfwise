@@ -364,3 +364,74 @@ class TestNextInSeries:
         model = Model([*catalog, later, first], Params(author_cap=10))
         picks = ids(model.picks([shelved(catalog[0])], WEIGHTS, limit=20))
         assert later.id not in picks and first.id in picks
+
+
+class TestDiagnosis:
+    """Miss reasons, rule switches and the series-tail simulation (held-out diagnosis)."""
+
+    def series_books(self):
+        return [
+            book(
+                400 + n,
+                f"{DRAGONS} saga part story{n}",
+                ["Fantasy"],
+                title=f"Saga {n}",
+                author=f"saga author {n}",
+                series="saga",
+                number=float(n),
+                key=(f"saga {n}", "x"),
+            )
+            for n in range(1, 5)
+        ]
+
+    def test_explain_names_the_rule_that_stopped_a_book(self, catalog):
+        one, two, three, four = self.series_books()
+        model = Model([*catalog, one, two, three, four], Params(author_cap=10))
+        # Read #1 and #4: #2 and #3 can't be "next" (the impossible reader).
+        shelf = [shelved(one), shelved(four), shelved(catalog[0])]
+        assert model.explain(shelf, WEIGHTS, three.id, depth=20) == "not_next_in_series"
+        assert model.explain(shelf, WEIGHTS, catalog[0].id, depth=20) == "on_shelf"
+        assert model.explain(shelf, WEIGHTS, 999, depth=20) == "no_text"
+
+    def test_explain_excluded_and_ranked_below(self, catalog):
+        poster = book(90, DRAGONS + " story0", ["Fantasy"], title="The Dragon Poster Book")
+        model = Model([*catalog, poster], Params(author_cap=10))
+        shelf = [shelved(catalog[0])]
+        assert model.explain(shelf, WEIGHTS, 90, depth=20) == "not_a_book"
+        assert model.explain(shelf, WEIGHTS, catalog[12].id, depth=1) == "ranked_below"
+
+    def test_rule_switches(self, catalog):
+        poster = book(
+            90, DRAGONS + " story0", ["Fantasy", "Picture books"], title="Dragons", number=None
+        )
+        model = Model([*catalog, poster], Params(picture_books=False, author_cap=10))
+        assert model.excluded[model.row[90]] is None
+        cued = book(91, DRAGONS + " story1", ["Fantasy"], title="Saga X", series="saga", number=5.0)
+        cued = BookText(**{**cued.__dict__, "series_source": "description"})
+        off = Model([*catalog, cued], Params(description_series=False))
+        assert off.series[off.row[91]] == ("", None)
+        one, two, three, four = self.series_books()
+        free = Model([*catalog, one, two, three, four], Params(next_in_series=False, author_cap=10))
+        shelf = [shelved(one), shelved(four), shelved(catalog[0])]
+        assert {two.id, three.id} <= set(ids(free.picks(shelf, WEIGHTS, limit=30)))
+
+    def test_holdout_hides_series_tails_and_reports_misses(self, catalog):
+        one, two, three, four = self.series_books()
+        model = Model([*catalog, one, two, three, four], Params(author_cap=10))
+        shelf = [shelved(b) for b in (one, two, three, four, *catalog[:6])]
+        tails = holdout(model, shelf, WEIGHTS, seeds=list(range(6)), fraction=0.2)
+        random_only = holdout(
+            model, shelf, WEIGHTS, seeds=list(range(6)), fraction=0.2, series_tails=False
+        )
+        assert sum(tails.tail_hidden) > 0 and random_only.tail_hidden == [0] * 6
+        assert sum(tails.misses.values()) + sum(tails.hits[50]) == tails.hidden * 6
+
+    def test_series_tails_leave_a_reader_who_could_exist(self, catalog):
+        from recommendations.engine import _series_tails
+
+        one, two, three, four = self.series_books()
+        model = Model([*catalog, one, two, three, four])
+        shelf = [shelved(b) for b in (one, two, three, four)]
+        # Hiding #2 also hides #3 and #4: the reader has read #1 only.
+        assert _series_tails(model, shelf, [shelved(two)]) == {three.id, four.id}
+        assert _series_tails(model, shelf, [shelved(four)]) == set()

@@ -1,23 +1,24 @@
-"""TF-IDF recommendations (R-1, R-2, R-3, R-5): pure computation, no database access.
+"""TF-IDF recommendations (R-1, R-2, R-3, R-5, R-6): pure computation, no database access.
 
 - Text per book: title, description and genres, each genre as one token (`genre_romance`)
   repeated `genre_weight` times (default 1: it beat 3 and 5 in the held-out check).
   English stop words removed; single words and two-word phrases ("slow burn", "found
-  family") unless phrases=False. Rows are L2-normalized, so a dot
-  product is cosine similarity.
+  family") unless phrases=False. Rows are L2-normalized, so a dot product is cosine
+  similarity.
 - Personal picks (R-2): a candidate's score is the mean of its `top_liked` highest
   similarities to the reader's liked books (robust to mixed tastes, where one averaged
   profile would drift between them), minus the DNF penalty (R-5): the largest of
   weight(reason) x similarity over the reader's DNF books.
 - Never recommended: anything on the shelf; another copy of a shelved book (same title +
-  first author key, or the same title when the shelved copy has no author); box sets,
-  non-books and non-English works (candidates.py). At most `author_cap` picks per author,
-  counting every credited author.
+  first author key, or the same title when the shelved copy has no author); books failing
+  a candidates.py rule. At most `author_cap` picks per author, counting every credited
+  author.
 - Series (R-6): in a series the reader hasn't started, a later book is replaced by the
   series' first book in the catalog (or skipped). In a series they have started (a book
   finished or being read), only the next unread book is recommended, boosted by
   `series_boost` when they rated what they finished 3+ stars or not at all. Series with a
   DNF are skipped. A "Book N" title in an unknown series is skipped when N > 1.
+- Every rule added in the #42 follow-up can be switched off in Params, to measure it.
 - Liked books: rated 4+ stars. With fewer than `min_liked`, also finished books rated 3+
   or unrated, and books being read now.
 - More like this (R-3): each book's `neighbours` most similar books, never itself or
@@ -25,12 +26,13 @@
 """
 
 import random
+from collections import Counter
 from dataclasses import dataclass, field
 
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-from .candidates import UNKNOWN_SERIES, exclusion_reason
+from .candidates import UNKNOWN_SERIES, exclusion_reasons
 
 Key = tuple[str, str]  # normalize.title_author_key(title, first author)
 
@@ -50,6 +52,7 @@ class BookText:
     series: str = ""  # candidates.series_key, "" if not known to be in a series
     series_number: float | None = None
     page_count: int | None = None
+    series_source: str = ""  # candidates.SERIES_SOURCES; "catalog" when unknown
 
 
 @dataclass(frozen=True)
@@ -78,6 +81,26 @@ class Params:
     neighbours: int = 10
     max_features: int = 100_000
     series_boost: float = 0.1
+    # Rules from the #42 follow-up, each switchable to measure its effect.
+    picture_books: bool = True
+    non_latin: bool = True
+    marker_only: bool = True
+    description_series: bool = True
+    title_number_series: bool = True
+    next_in_series: bool = True
+    dnf_series: bool = True
+
+    def disabled_rules(self) -> set[str]:
+        flags = {
+            "picture_book": self.picture_books,
+            "non_latin": self.non_latin,
+            "marker_only": self.marker_only,
+        }
+        return {rule for rule, on in flags.items() if not on}
+
+    def disabled_series_sources(self) -> set[str]:
+        flags = {"description": self.description_series, "title_number": self.title_number_series}
+        return {source for source, on in flags.items() if not on}
 
 
 @dataclass(frozen=True)
@@ -116,6 +139,51 @@ def liked_books(shelf: list[ShelfItem], min_liked: int) -> list[ShelfItem]:
     return liked + extra
 
 
+class _SeriesState:
+    """What the reader's shelf says about series (R-6). `series_of` gives a shelf item's
+    effective (series, number), so a switched-off series source is ignored here too."""
+
+    def __init__(self, shelf: list[ShelfItem], series_of, params: Params):
+        named = []
+        for s in shelf:
+            name, number = series_of(s)
+            if name and name != UNKNOWN_SERIES:
+                named.append((s, name, number))
+        self.dnf = (
+            {name for s, name, _ in named if s.status == "dnf"} if params.dnf_series else set()
+        )
+        read = [
+            (s, name, number)
+            for s, name, number in named
+            if s.status in ("finished", "reading") and name not in self.dnf
+        ]
+        # series -> highest book number finished or being read (0 if numbers are unknown)
+        self.started: dict[str, float] = {}
+        for _, name, number in read:
+            self.started[name] = max(self.started.get(name, 0), number or 0)
+        self.liked = {
+            name
+            for s, name, _ in read
+            if s.status == "finished" and (s.rating is None or s.rating >= 3)
+        }
+
+
+@dataclass
+class _Context:
+    """Everything picks() decides with, kept so a miss can be explained the same way."""
+
+    liked_rows: list[int]
+    sims: np.ndarray
+    score: np.ndarray
+    shelved_ids: set[int]
+    shelved_keys: set[Key]
+    shelved_titles: set[str]
+    series: _SeriesState
+    next_rows: dict[str, int] = field(default_factory=dict)
+    picked_keys: set[Key] = field(default_factory=set)
+    per_author: Counter = field(default_factory=Counter)
+
+
 class Model:
     """The TF-IDF matrix over every book with text."""
 
@@ -125,20 +193,26 @@ class Model:
         self.books = [b for b in books if has_text(b)]
         self.row = {b.id: i for i, b in enumerate(self.books)}
         self.keys = [b.key for b in self.books]
-        # Why each book can't be recommended (None: it can).
+        # Why each book can't be recommended (None: it can), ignoring switched-off rules.
+        disabled = params.disabled_rules()
+        self.reasons = [
+            exclusion_reasons(b.title, b.description, b.genres, b.page_count) for b in self.books
+        ]
         self.excluded = [
-            exclusion_reason(b.title, b.description, b.genres, b.page_count) for b in self.books
+            next((reason for reason in reasons if reason not in disabled), None)
+            for reasons in self.reasons
+        ]
+        # Each book's effective series, ignoring switched-off series sources.
+        off = params.disabled_series_sources()
+        self.series = [
+            ("", None) if b.series_source in off else (b.series, b.series_number)
+            for b in self.books
         ]
         # series -> [(number, row)], first book first, for replacing mid-series picks.
         self.series_rows: dict[str, list[tuple[float, int]]] = {}
-        for r, b in enumerate(self.books):
-            if (
-                b.series
-                and b.series != UNKNOWN_SERIES
-                and b.series_number is not None
-                and not self.excluded[r]
-            ):
-                self.series_rows.setdefault(b.series, []).append((b.series_number, r))
+        for r, (name, number) in enumerate(self.series):
+            if name and name != UNKNOWN_SERIES and number is not None and not self.excluded[r]:
+                self.series_rows.setdefault(name, []).append((number, r))
         for rows in self.series_rows.values():
             rows.sort()
         self.vectorizer = TfidfVectorizer(
@@ -162,15 +236,19 @@ class Model:
     def _rows(self, book_ids) -> list[int]:
         return [self.row[i] for i in book_ids if i in self.row]
 
-    def picks(
-        self, shelf: list[ShelfItem], dnf_weights: dict[str, float], limit: int | None = None
-    ) -> list[Pick]:
-        """The reader's top picks, best first. Empty without any liked book that has text."""
+    def shelf_series(self, item: ShelfItem) -> tuple[str, float | None]:
+        """A shelf item's effective series: its catalog book's, when that has text."""
+        if item.book_id in self.row:
+            return self.series[self.row[item.book_id]]
+        return item.series, item.series_number
+
+    # --- Picks -----------------------------------------------------------------------
+
+    def _context(self, shelf: list[ShelfItem], dnf_weights: dict[str, float]) -> _Context | None:
         p = self.params
-        limit = limit or p.picks
         liked_rows = self._rows(s.book_id for s in liked_books(shelf, p.min_liked))
         if not liked_rows:
-            return []
+            return None
         sims = (self.matrix @ self.matrix[liked_rows].T).toarray()  # books x liked
         k = min(p.top_liked, len(liked_rows))
         top = np.partition(sims, sims.shape[1] - k, axis=1)[:, -k:]
@@ -183,77 +261,128 @@ class Model:
             penalty = (self.matrix @ self.matrix[list(rows)].T).toarray() * np.array(weights)
             score = score - penalty.max(axis=1)
 
-        shelved_ids = {s.book_id for s in shelf}
-        shelved_keys = {s.key for s in shelf}
-        # A shelved copy with no author can only be recognised by its title.
-        shelved_titles = {s.key[0] for s in shelf if title_only(s.key)}
+        ctx = _Context(
+            liked_rows=liked_rows,
+            sims=sims,
+            score=score,
+            shelved_ids={s.book_id for s in shelf},
+            shelved_keys={s.key for s in shelf},
+            # A shelved copy with no author can only be recognised by its title.
+            shelved_titles={s.key[0] for s in shelf if title_only(s.key)},
+            series=_SeriesState(shelf, self.shelf_series, p),
+        )
+        if p.next_in_series:
+            # The next unread book of each started series, boosted when liked (R-6).
+            for name, read_up_to in ctx.series.started.items():
+                for number, row in self.series_rows.get(name, ()):
+                    if number > read_up_to and not self._blocked(row, ctx):
+                        ctx.next_rows[name] = row
+                        if name in ctx.series.liked:
+                            ctx.score[row] += p.series_boost
+                        break
+        return ctx
+
+    def _blocked(self, row: int, ctx: _Context) -> str | None:
+        """Why `row` can't be picked at all right now, or None."""
+        book = self.books[row]
+        if self.excluded[row]:
+            return self.excluded[row]
+        if book.id in ctx.shelved_ids:
+            return "on_shelf"
+        if book.key in ctx.shelved_keys or book.key[0] in ctx.shelved_titles:
+            return "copy_on_shelf"
+        if book.key in ctx.picked_keys:
+            return "copy_picked"
+        return None
+
+    def picks(
+        self, shelf: list[ShelfItem], dnf_weights: dict[str, float], limit: int | None = None
+    ) -> list[Pick]:
+        """The reader's top picks, best first. Empty without any liked book that has text."""
+        p = self.params
+        limit = limit or p.picks
+        ctx = self._context(shelf, dnf_weights)
+        if ctx is None:
+            return []
         chosen: list[Pick] = []
-        per_author: dict[str, int] = {}
-        picked_keys: set[Key] = set()
-        series = _SeriesState(shelf)
-
-        def blocked(row: int) -> bool:
-            book = self.books[row]
-            return bool(
-                self.excluded[row]
-                or book.id in shelved_ids
-                or book.key in shelved_keys
-                or book.key in picked_keys
-                or book.key[0] in shelved_titles
-            )
-
-        # The next unread book of each started series, boosted when liked (R-6).
-        next_rows: dict[str, int] = {}
-        for name, read_up_to in series.started.items():
-            for number, row in self.series_rows.get(name, ()):
-                if number > read_up_to and not blocked(row):
-                    next_rows[name] = row
-                    if name in series.liked:
-                        score[row] += p.series_boost
-                    break
-
-        order = np.argsort(-score, kind="stable")
-        for r in order:
-            if blocked(r):
+        for r in np.argsort(-ctx.score, kind="stable"):
+            if self._blocked(r, ctx):
                 continue
-            target = self._series_target(r, series, next_rows, blocked)
+            target, _ = self._series_target(r, ctx)
             if target is None:
                 continue
             book = self.books[target]
-            if any(per_author.get(a, 0) >= p.author_cap for a in book.authors):
+            if any(ctx.per_author[a] >= p.author_cap for a in book.authors):
                 continue
-            for a in book.authors:
-                per_author[a] = per_author.get(a, 0) + 1
-            picked_keys.add(book.key)
-            because = liked_rows[int(np.argmax(sims[r]))]
-            chosen.append(Pick(book.id, float(score[r]), self.books[because].id))
+            ctx.per_author.update(book.authors)
+            ctx.picked_keys.add(book.key)
+            because = ctx.liked_rows[int(np.argmax(ctx.sims[r]))]
+            chosen.append(Pick(book.id, float(ctx.score[r]), self.books[because].id))
             if len(chosen) >= limit:
                 break
         return chosen
 
-    def _series_target(self, row: int, series: "_SeriesState", next_rows, blocked) -> int | None:
-        """The row to recommend for `row`, or None to skip it (see the module docstring)."""
-        book = self.books[row]
-        number = book.series_number or 0
-        if not book.series:
-            return row
-        if book.series == UNKNOWN_SERIES:
-            return row if number <= 1 else None  # can't tell if the reader has started it
-        if book.series in series.dnf:
-            return None
-        if book.series in series.started:
-            nxt = next_rows.get(book.series)
-            if nxt is None or blocked(nxt):
-                return None  # nothing unread left in the catalog, or already picked
-            return nxt if number > (self.books[nxt].series_number or 0) else row
-        if number <= 1:
-            return row
-        for number, first in self.series_rows.get(book.series, ()):
-            if number > 1:
-                return None  # the series' first book isn't in the catalog
-            if not blocked(first):
-                return first
-        return None
+    def _series_target(self, row: int, ctx: _Context) -> tuple[int | None, str]:
+        """(row to recommend for `row`, or None to skip it; the rule that decided)."""
+        p = self.params
+        name, number = self.series[row]
+        number = number or 0
+        if not name:
+            return row, ""
+        if name == UNKNOWN_SERIES:
+            # Can't tell if the reader has started it.
+            return (row, "") if number <= 1 else (None, "book_n_skip")
+        if name in ctx.series.dnf:
+            return None, "dnf_series"
+        if name in ctx.series.started and p.next_in_series:
+            nxt = ctx.next_rows.get(name)
+            if nxt is None or self._blocked(nxt, ctx):
+                return None, "not_next_in_series"  # nothing unread left, or already picked
+            if number > (self.series[nxt][1] or 0):
+                return nxt, "not_next_in_series"
+            return row, ""
+        if name in ctx.series.started or number <= 1:
+            return row, ""
+        for first_number, first in self.series_rows.get(name, ()):
+            if first_number > 1:
+                return None, "series_first_book_missing"
+            blocked = self._blocked(first, ctx)
+            if not blocked:
+                return first, "series_first_book_instead"
+            if blocked == "copy_picked":
+                return None, "series_first_book_instead"  # book 1 is already a pick
+        return None, "series_first_book_missing"
+
+    def explain(
+        self, shelf: list[ShelfItem], dnf_weights: dict[str, float], book_id: int, depth: int
+    ) -> str:
+        """Why `book_id` isn't among the top `depth` picks for `shelf`: the first rule that
+        stopped it, or "ranked_below" when nothing did and it simply scored too low."""
+        if book_id not in self.row:
+            return "no_text"
+        ctx = self._context(shelf, dnf_weights)
+        if ctx is None:
+            return "no_liked_books"
+        row = self.row[book_id]
+        top: list[Pick] = []
+        for pick in self.picks(shelf, dnf_weights, limit=depth):
+            pr = self.row[pick.book_id]
+            ctx.picked_keys.add(self.books[pr].key)
+            ctx.per_author.update(self.books[pr].authors)
+            top.append(pick)
+        if any(pick.book_id == book_id for pick in top):
+            return "picked"
+        ctx.picked_keys.discard(self.books[row].key)  # its own key isn't a reason
+        if reason := self._blocked(row, ctx):
+            return reason
+        target, rule = self._series_target(row, ctx)
+        if target != row:
+            return rule
+        if any(ctx.per_author[a] >= self.params.author_cap for a in self.books[row].authors):
+            return "author_cap"
+        return "ranked_below"
+
+    # --- More like this ------------------------------------------------------------
 
     def neighbours(self, chunk: int = 1000) -> dict[int, list[tuple[int, float]]]:
         """{book id: [(similar id, score)], best first} for every book with text."""
@@ -281,33 +410,18 @@ class Model:
         return result
 
 
-class _SeriesState:
-    """What the reader's shelf says about series (R-6)."""
-
-    def __init__(self, shelf: list[ShelfItem]):
-        named = [s for s in shelf if s.series and s.series != UNKNOWN_SERIES]
-        self.dnf = {s.series for s in named if s.status == "dnf"}
-        read = [
-            s for s in named if s.status in ("finished", "reading") and s.series not in self.dnf
-        ]
-        # series -> highest book number finished or being read (0 if numbers are unknown)
-        self.started: dict[str, float] = {}
-        for s in read:
-            self.started[s.series] = max(self.started.get(s.series, 0), s.series_number or 0)
-        self.liked = {
-            s.series for s in read if s.status == "finished" and (s.rating is None or s.rating >= 3)
-        }
-
-
 # --- Held-out check (recommendation_profiles_report) ---------------------------------
 
 
 @dataclass
 class HoldoutResult:
     liked: int  # 4+ star books with text
-    hidden: int  # per seed
+    hidden: int  # targets per seed
     hits: dict[int, list[int]] = field(default_factory=dict)  # k -> hits per seed
     candidates: int = 0  # books that could be picked
+    # Why targets missed the top max(k), summed over seeds ("ranked_below": scored too low).
+    misses: Counter = field(default_factory=Counter)
+    tail_hidden: list[int] = field(default_factory=list)  # extra series books hidden per seed
 
     def average(self, k: int) -> float:
         return sum(self.hits[k]) / len(self.hits[k]) if self.hits.get(k) else 0.0
@@ -327,26 +441,53 @@ def holdout(
     seeds: list[int],
     fraction: float = 0.2,
     at: tuple[int, ...] = (20, 50),
+    series_tails: bool = True,
 ) -> HoldoutResult:
     """Hide `fraction` of the 4+ star books (per seed), treat them as unread, and count how
-    many come back in the top k picks."""
+    many come back in the top k picks.
+
+    Series tails: hiding a series book also hides every later book of that series on the
+    shelf (as unread, but not as a target), so the simulated reader is one a real reader
+    could be: read up to just before the first hidden book. Hiding #2 and #3 while #4 stays
+    read would be a reader the next-in-series rule rightly never recommends #2 to.
+    """
     liked = [s for s in shelf if s.rating is not None and s.rating >= 4 and s.book_id in model.row]
     hidden_count = max(1, round(len(liked) * fraction)) if liked else 0
     result = HoldoutResult(liked=len(liked), hidden=hidden_count, hits={k: [] for k in at})
     if not hidden_count:
         return result
+    depth = max(at)
     for seed in seeds:
         # A seeded sample for a repeatable evaluation, not security. (S311)
-        hidden = random.Random(seed).sample(liked, hidden_count)  # noqa: S311
-        hidden_ids = {s.book_id for s in hidden}
-        visible = [s for s in shelf if s.book_id not in hidden_ids]
+        targets = random.Random(seed).sample(liked, hidden_count)  # noqa: S311
+        hidden_ids = {s.book_id for s in targets}
+        tails = _series_tails(model, shelf, targets) - hidden_ids if series_tails else set()
+        result.tail_hidden.append(len(tails))
+        visible = [s for s in shelf if s.book_id not in hidden_ids | tails]
         result.candidates = len(model.books) - len(
             {s.book_id for s in visible if s.book_id in model.row}
         )
-        picks = model.picks(visible, dnf_weights, limit=max(at))
-        hidden_keys = {s.key for s in hidden}
+        picks = model.picks(visible, dnf_weights, limit=depth)
+        picked_keys = [model.books[model.row[p.book_id]].key for p in picks]
         for k in at:
-            result.hits[k].append(
-                sum(1 for p in picks[:k] if model.books[model.row[p.book_id]].key in hidden_keys)
-            )
+            keys = set(picked_keys[:k])
+            result.hits[k].append(sum(1 for s in targets if s.key in keys))
+        for target in targets:
+            if target.key not in set(picked_keys):
+                result.misses[model.explain(visible, dnf_weights, target.book_id, depth)] += 1
     return result
+
+
+def _series_tails(model: Model, shelf: list[ShelfItem], targets: list[ShelfItem]) -> set[int]:
+    """Shelf books later in the same series than a target (by effective series)."""
+    first_hidden: dict[str, float] = {}
+    for t in targets:
+        name, number = model.shelf_series(t)
+        if name and name != UNKNOWN_SERIES and number is not None:
+            first_hidden[name] = min(first_hidden.get(name, number), number)
+    tails = set()
+    for s in shelf:
+        name, number = model.shelf_series(s)
+        if name in first_hidden and number is not None and number > first_hidden[name]:
+            tails.add(s.book_id)
+    return tails

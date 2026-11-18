@@ -634,6 +634,33 @@ Each rule was measured on the seeded catalog first. Local counts below.
    - **A series with a DNF is skipped entirely.**
    - Series match on `series_key` ("The Crescent City series" and Goodreads' "Crescent City" are both "crescent city").
 
+### Held-out drop after #42: diagnosis (Nov 18, 2026)
+
+**On Neon, hits in the top 20 fell from 55.6% to about 20%** after #42, whatever the boost: 0 gave 22.2%, 0.1 and 0.2 gave 20.0%.
+
+- **Cause: the simulation, not the rules.** Hiding random books makes readers who can't exist. If you've read #1 and #4 and #2 and #3 are hidden, the next-in-series rule (correctly) never recommends #2 to someone who has read #4. Before #42, those hidden sequels were easy hits, which inflated 55.6% too.
+- **Reproduced on a synthetic series-heavy reader:** 8 series read in full, 20 standalones, all 5★, 11 hidden per seed.
+
+  | Rules | Random hiding | Series tails |
+  | --- | --- | --- |
+  | New rules | 18% (29 misses "not next in series") | 33% |
+  | Next-in-series off | 60% | 33% |
+
+  Under the realistic simulation, next-in-series costs nothing on this reader.
+- **Fix chosen: hide series tails.**
+  - Hiding a series book also hides every later shelf book of that series. Those count as unread, not as targets, so the denominator is unchanged.
+  - The simulated reader has read up to just before the first hidden book, a state a real reader can be in, and the production rule is evaluated unchanged.
+  - The alternative (treat a hidden book as eligible when every earlier book is read or hidden) was rejected: it would let several books of one series hit at once, which production never recommends, so it would measure a rule we don't have.
+  - `--no-series-tails` gives the old random hiding, for comparison.
+- **Numbers before and after this fix aren't comparable.** Re-baseline with series tails, then compare rules within it.
+- **Tools added to `recommendation_profiles_report`:**
+  - **Why each missed target missed the top 50**, as counts per reason, no titles: `ranked_below` (eligible but scored too low), `not_next_in_series`, `series_first_book_instead`, `series_first_book_missing`, `book_n_skip`, `dnf_series`, `author_cap`, `copy_on_shelf`, `copy_picked`, each exclusion rule, and `no_text`. `Model.explain()` uses the same context as `picks()`, so the reasons can't drift from the real rules.
+  - **`--no-<rule>` for each #42 rule:** `picture-books`, `non-latin`, `marker-only`, `description-series`, `title-number-series`, `next-in-series`, `dnf-series`. Exclusions now record every rule a book fails, so switching one off doesn't let the book slip past another. `non_latin` is now a separate reason from `foreign`.
+  - A synthetic reader can't judge the series-source switches, because it's built from those series. Measure them on the real shelf.
+- **"Ghost Story" (Dresden Files #13) got through** because its title is plain and its description names no series or number. Its genres do include "Harry Dresden (Fictitious character)".
+  - Linking books by the same author through such a character genre finds 59 seeded books with no known series (most of the Dresden Files and Wheel of Time).
+  - Those links have no number, and many are book 1s ("The Eye of the World", "One for the Money"), so they'd need an order, for example publication year against the series' numbered books. Proposed, not built.
+
 ## Phase 5 backlog
 
 Everything deferred so far, in one place, to pick up in Phase 5 (polish) or sooner if it becomes urgent. Each item links back to where it was decided.
