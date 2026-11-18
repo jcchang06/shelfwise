@@ -2,18 +2,38 @@
 
 import pytest
 
-from recommendations.engine import BookText, Model, Params, ShelfItem, holdout, liked_books
+from recommendations.engine import (
+    NO_AUTHOR,
+    BookText,
+    Model,
+    Params,
+    ShelfItem,
+    holdout,
+    liked_books,
+)
 
 WEIGHTS = {"writing_style": 1.0, "pacing": 0.5, "not_in_the_mood": 0.0, "not_specified": 0.0}
 
 
-def book(n, words, genres=(), author=None, key=None):
+def book(
+    n, words, genres=(), author=None, key=None, title=None, authors=None, series="", number=None
+):
     author = author if author is not None else f"author {n}"
-    return BookText(n, f"Book {n}", words, tuple(genres), author, key or (f"book {n}", author))
+    title = title or f"Book {n}"
+    return BookText(
+        n,
+        title,
+        words,
+        tuple(genres),
+        tuple(authors) if authors is not None else (author,),
+        key or (title.casefold(), author),
+        series,
+        number,
+    )
 
 
 def shelved(b: BookText, status="finished", rating=5, reason=""):
-    return ShelfItem(b.id, status, rating, reason, b.key)
+    return ShelfItem(b.id, status, rating, reason, b.key, b.series)
 
 
 DRAGONS = "dragons magic kingdom quest sword wizard"
@@ -98,6 +118,122 @@ class TestModel:
 
     def test_genre_weight_and_phrases_change_the_vocabulary(self, catalog):
         assert Model(catalog, Params(phrases=False)).vocabulary < Model(catalog).vocabulary
+
+    def test_genre_weight_defaults_to_1_and_0_leaves_genres_out(self, catalog):
+        assert Params().genre_weight == 1
+        assert "genre_fantasy" not in Model(catalog, Params(genre_weight=0)).vectorizer.vocabulary_
+
+
+class TestCandidateFixes:
+    """The six issues found in the first real picks (Nov 17, 2026)."""
+
+    def test_box_sets_are_never_picked_or_shown_as_similar(self, catalog):
+        box = book(
+            70, DRAGONS + " story1 chapter1 story2", ["Fantasy"], title="Book 2 / Book 3 / Book 4"
+        )
+        series = book(
+            71, DRAGONS + " story3 chapter1", ["Fantasy"], title="Dragon Saga (series) 1-7"
+        )
+        model = Model([*catalog, box, series], Params(author_cap=10))
+        picks = ids(model.picks([shelved(catalog[0])], WEIGHTS, limit=20))
+        assert 70 not in picks and 71 not in picks
+        similar = [s for s, _ in model.neighbours()[catalog[0].id]]
+        assert 70 not in similar and 71 not in similar
+
+    def test_a_shelved_copy_with_no_author_still_blocks_its_title(self, catalog):
+        # The live case: the library copy had no linked author, the seeded one did.
+        library = book(
+            80,
+            DRAGONS + " story0 chapter0",
+            ["Fantasy"],
+            title="Shadow and Bone",
+            authors=(),
+            key=("shadow and bone", f"{NO_AUTHOR}80"),
+        )
+        seeded = book(
+            81,
+            DRAGONS + " story0 chapter0",
+            ["Fantasy"],
+            title="Shadow and Bone",
+            author="leigh bardugo",
+            key=("shadow and bone", "leigh bardugo"),
+        )
+        model = Model([*catalog, library, seeded])
+        assert 81 not in ids(model.picks([shelved(library)], WEIGHTS, limit=20))
+
+    def test_non_books_and_fan_fiction_are_never_picked(self, catalog):
+        poster = book(90, DRAGONS + " story0 chapter1", ["Fantasy"], title="The Dragon Poster Book")
+        fanfic = book(
+            91,
+            DRAGONS + " story1 chapter0",
+            ["Fantasy", "Fan fiction"],
+            title="Dragons and the Methods",
+        )
+        model = Model([*catalog, poster, fanfic], Params(author_cap=10))
+        picks = ids(model.picks([shelved(catalog[0])], WEIGHTS, limit=20))
+        assert 90 not in picks and 91 not in picks
+
+    def test_works_with_a_non_english_title_are_never_picked(self, catalog):
+        german = book(
+            95, DRAGONS + " story2 chapter0", ["Fantasy"], title="Die Stadt der Träumenden Bücher"
+        )
+        model = Model([*catalog, german], Params(author_cap=10))
+        assert 95 not in ids(model.picks([shelved(catalog[0])], WEIGHTS, limit=20))
+
+    def test_the_author_cap_counts_every_credited_author(self, catalog):
+        rowling = [
+            book(
+                100 + i,
+                DRAGONS + f" wand{i}",
+                ["Fantasy"],
+                authors=(f"illustrator {i}", "jk rowling"),
+            )
+            for i in range(5)
+        ]
+        model = Model([*catalog, *rowling], Params(author_cap=2))
+        picks = ids(model.picks([shelved(catalog[0])], WEIGHTS, limit=20))
+        assert sum(1 for p in picks if p >= 100) == 2
+
+    def test_a_later_book_of_an_unstarted_series_becomes_its_first_book(self, catalog):
+        first = book(
+            110, SPACE + " detective one", ["Science Fiction"], series="dresden files", number=1.0
+        )
+        seventh = book(
+            111,
+            DRAGONS + " story0 chapter0 wizard",
+            ["Fantasy"],
+            series="dresden files",
+            number=7.0,
+        )
+        model = Model([*catalog, first, seventh], Params(author_cap=10))
+        picks = ids(model.picks([shelved(catalog[0])], WEIGHTS, limit=20))
+        assert 111 not in picks and 110 in picks
+        assert picks.index(110) < 3  # it takes the place where book 7 scored
+
+    def test_a_later_book_is_fine_once_the_series_is_started(self, catalog):
+        first = book(
+            110, SPACE + " detective one", ["Science Fiction"], series="dresden files", number=1.0
+        )
+        seventh = book(
+            111,
+            DRAGONS + " story0 chapter0 wizard",
+            ["Fantasy"],
+            series="dresden files",
+            number=7.0,
+        )
+        model = Model([*catalog, first, seventh], Params(author_cap=10))
+        assert 111 in ids(model.picks([shelved(catalog[0]), shelved(first)], WEIGHTS, limit=20))
+
+    def test_without_the_first_book_in_the_catalog_a_later_one_is_skipped(self, catalog):
+        seventh = book(
+            111,
+            DRAGONS + " story0 chapter0 wizard",
+            ["Fantasy"],
+            series="dresden files",
+            number=7.0,
+        )
+        model = Model([*catalog, seventh], Params(author_cap=10))
+        assert 111 not in ids(model.picks([shelved(catalog[0])], WEIGHTS, limit=20))
 
 
 class TestLikedBooks:

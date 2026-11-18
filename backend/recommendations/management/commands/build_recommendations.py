@@ -8,6 +8,7 @@ and similar books in memory, then writes a new run in batches. Prints counts onl
 """
 
 import time
+from collections import Counter
 
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
@@ -35,6 +36,11 @@ class Command(BaseCommand):
         out(f"Books in the catalog:           {len(snapshot.books)}")
         out(f"Books with text (scored):       {len(results.model.books)}")
         out(f"Vocabulary:                     {results.model.vocabulary}")
+        excluded = Counter(reason for reason in results.model.excluded if reason)
+        out(
+            "Never recommended:              "
+            + (", ".join(f"{r} {n}" for r, n in sorted(excluded.items())) or "none")
+        )
         out(f"Readers with picks:             {report.users_with_picks}")
         if report.users_without_picks:
             out(

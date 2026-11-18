@@ -17,7 +17,8 @@ from catalog.models import Book, BookAuthor
 from catalog.services import normalize
 from tracking.models import UserBook
 
-from .engine import BookText, Model, Params, Pick, ShelfItem
+from .candidates import series_of
+from .engine import NO_AUTHOR, BookText, Model, Params, Pick, ShelfItem
 from .models import Recommendation, RecommendationRun, SimilarBook
 
 WRITE_BATCH = 2_000
@@ -30,41 +31,54 @@ class Snapshot:
 
 
 def read_snapshot() -> Snapshot:
-    """Every book (title, description, genres, first author) and every shelf entry, in one
-    short transaction: two book queries and one shelf query."""
+    """Every book (title, description, genres, credited authors, series) and every shelf
+    entry, in one short transaction: two book queries and one shelf query."""
     with transaction.atomic():
-        first_author: dict[int, str] = {}
+        authors: dict[int, list[str]] = defaultdict(list)
         for book_id, name in BookAuthor.objects.order_by("book_id", "position", "id").values_list(
             "book_id", "author__name"
         ):
-            first_author.setdefault(book_id, name)
+            authors[book_id].append(name)
         books = []
-        for book_id, title, description, genres in Book.objects.order_by("id").values_list(
-            "id", "title", "description", "genres"
+        for (
+            book_id,
+            title,
+            description,
+            genres,
+            series_name,
+            series_number,
+        ) in Book.objects.order_by("id").values_list(
+            "id", "title", "description", "genres", "series_name", "series_number"
         ):
-            author = first_author.get(book_id, "")
+            names = authors.get(book_id, [])
             # Without an author a title alone is too weak to call two books the same one.
             key = (
-                normalize.title_author_key(title, author)
-                if author
-                else (normalize.normalize_title(title), f"#{book_id}")
+                normalize.title_author_key(title, names[0])
+                if names
+                else (normalize.normalize_title(title), f"{NO_AUTHOR}{book_id}")
             )
+            series, number = series_of(title, series_name, series_number)
             books.append(
                 BookText(
                     id=book_id,
                     title=title,
                     description=description or "",
                     genres=tuple(genres or ()),
-                    author=normalize.normalize_author_name(author) if author else "",
+                    authors=tuple(dict.fromkeys(normalize.normalize_author_name(n) for n in names)),
                     key=key,
+                    series=series,
+                    series_number=number,
                 )
             )
-        keys = {b.id: b.key for b in books}
+        by_id = {b.id: b for b in books}
         shelves: dict[int, list[ShelfItem]] = defaultdict(list)
         for user_id, book_id, status, rating, reason in UserBook.objects.values_list(
             "user_id", "book_id", "status", "rating", "dnf_reason"
         ):
-            shelves[user_id].append(ShelfItem(book_id, status, rating, reason, keys[book_id]))
+            book = by_id[book_id]
+            shelves[user_id].append(
+                ShelfItem(book_id, status, rating, reason, book.key, book.series)
+            )
     return Snapshot(books, dict(shelves))
 
 
