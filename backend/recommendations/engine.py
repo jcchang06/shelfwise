@@ -13,8 +13,11 @@
   first author key, or the same title when the shelved copy has no author); box sets,
   non-books and non-English works (candidates.py). At most `author_cap` picks per author,
   counting every credited author.
-- A later book in a series the reader hasn't started is replaced by the series' first book
-  in the catalog (or skipped when there's none).
+- Series (R-6): in a series the reader hasn't started, a later book is replaced by the
+  series' first book in the catalog (or skipped). In a series they have started (a book
+  finished or being read), only the next unread book is recommended, boosted by
+  `series_boost` when they rated what they finished 3+ stars or not at all. Series with a
+  DNF are skipped. A "Book N" title in an unknown series is skipped when N > 1.
 - Liked books: rated 4+ stars. With fewer than `min_liked`, also finished books rated 3+
   or unrated, and books being read now.
 - More like this (R-3): each book's `neighbours` most similar books, never itself or
@@ -27,7 +30,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-from .candidates import exclusion_reason
+from .candidates import UNKNOWN_SERIES, exclusion_reason
 
 Key = tuple[str, str]  # normalize.title_author_key(title, first author)
 
@@ -46,6 +49,7 @@ class BookText:
     key: Key
     series: str = ""  # candidates.series_key, "" if not known to be in a series
     series_number: float | None = None
+    page_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -56,6 +60,7 @@ class ShelfItem:
     dnf_reason: str
     key: Key
     series: str = ""
+    series_number: float | None = None
 
 
 def title_only(key: Key) -> bool:
@@ -72,6 +77,7 @@ class Params:
     min_liked: int = 5
     neighbours: int = 10
     max_features: int = 100_000
+    series_boost: float = 0.1
 
 
 @dataclass(frozen=True)
@@ -120,11 +126,18 @@ class Model:
         self.row = {b.id: i for i, b in enumerate(self.books)}
         self.keys = [b.key for b in self.books]
         # Why each book can't be recommended (None: it can).
-        self.excluded = [exclusion_reason(b.title, b.description, b.genres) for b in self.books]
+        self.excluded = [
+            exclusion_reason(b.title, b.description, b.genres, b.page_count) for b in self.books
+        ]
         # series -> [(number, row)], first book first, for replacing mid-series picks.
         self.series_rows: dict[str, list[tuple[float, int]]] = {}
         for r, b in enumerate(self.books):
-            if b.series and b.series_number is not None and not self.excluded[r]:
+            if (
+                b.series
+                and b.series != UNKNOWN_SERIES
+                and b.series_number is not None
+                and not self.excluded[r]
+            ):
                 self.series_rows.setdefault(b.series, []).append((b.series_number, r))
         for rows in self.series_rows.values():
             rows.sort()
@@ -174,11 +187,10 @@ class Model:
         shelved_keys = {s.key for s in shelf}
         # A shelved copy with no author can only be recognised by its title.
         shelved_titles = {s.key[0] for s in shelf if title_only(s.key)}
-        started_series = {s.series for s in shelf if s.series}
-        order = np.argsort(-score, kind="stable")
         chosen: list[Pick] = []
         per_author: dict[str, int] = {}
         picked_keys: set[Key] = set()
+        series = _SeriesState(shelf)
 
         def blocked(row: int) -> bool:
             book = self.books[row]
@@ -190,10 +202,21 @@ class Model:
                 or book.key[0] in shelved_titles
             )
 
+        # The next unread book of each started series, boosted when liked (R-6).
+        next_rows: dict[str, int] = {}
+        for name, read_up_to in series.started.items():
+            for number, row in self.series_rows.get(name, ()):
+                if number > read_up_to and not blocked(row):
+                    next_rows[name] = row
+                    if name in series.liked:
+                        score[row] += p.series_boost
+                    break
+
+        order = np.argsort(-score, kind="stable")
         for r in order:
             if blocked(r):
                 continue
-            target = self._series_start(r, started_series, blocked)
+            target = self._series_target(r, series, next_rows, blocked)
             if target is None:
                 continue
             book = self.books[target]
@@ -208,11 +231,22 @@ class Model:
                 break
         return chosen
 
-    def _series_start(self, row: int, started: set[str], blocked) -> int | None:
-        """The row to recommend for `row`: itself, unless it's a later book in a series the
-        reader hasn't started; then that series' first available book, or None."""
+    def _series_target(self, row: int, series: "_SeriesState", next_rows, blocked) -> int | None:
+        """The row to recommend for `row`, or None to skip it (see the module docstring)."""
         book = self.books[row]
-        if not book.series or (book.series_number or 0) <= 1 or book.series in started:
+        number = book.series_number or 0
+        if not book.series:
+            return row
+        if book.series == UNKNOWN_SERIES:
+            return row if number <= 1 else None  # can't tell if the reader has started it
+        if book.series in series.dnf:
+            return None
+        if book.series in series.started:
+            nxt = next_rows.get(book.series)
+            if nxt is None or blocked(nxt):
+                return None  # nothing unread left in the catalog, or already picked
+            return nxt if number > (self.books[nxt].series_number or 0) else row
+        if number <= 1:
             return row
         for number, first in self.series_rows.get(book.series, ()):
             if number > 1:
@@ -245,6 +279,24 @@ class Model:
                         break
                 result[self.books[r].id] = found
         return result
+
+
+class _SeriesState:
+    """What the reader's shelf says about series (R-6)."""
+
+    def __init__(self, shelf: list[ShelfItem]):
+        named = [s for s in shelf if s.series and s.series != UNKNOWN_SERIES]
+        self.dnf = {s.series for s in named if s.status == "dnf"}
+        read = [
+            s for s in named if s.status in ("finished", "reading") and s.series not in self.dnf
+        ]
+        # series -> highest book number finished or being read (0 if numbers are unknown)
+        self.started: dict[str, float] = {}
+        for s in read:
+            self.started[s.series] = max(self.started.get(s.series, 0), s.series_number or 0)
+        self.liked = {
+            s.series for s in read if s.status == "finished" and (s.rating is None or s.rating >= 3)
+        }
 
 
 # --- Held-out check (recommendation_profiles_report) ---------------------------------

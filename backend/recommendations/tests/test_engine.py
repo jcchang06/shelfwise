@@ -33,7 +33,7 @@ def book(
 
 
 def shelved(b: BookText, status="finished", rating=5, reason=""):
-    return ShelfItem(b.id, status, rating, reason, b.key, b.series)
+    return ShelfItem(b.id, status, rating, reason, b.key, b.series, b.series_number)
 
 
 DRAGONS = "dragons magic kingdom quest sword wizard"
@@ -278,3 +278,89 @@ class TestHoldout:
     def test_no_liked_books(self, catalog):
         result = holdout(Model(catalog), [], WEIGHTS, seeds=[0])
         assert result.hidden == 0 and result.rate(20) == 0.0
+
+
+class TestNextInSeries:
+    """R-6 and the follow-up misses: next unread in a started series, DNF'd series,
+    unknown series."""
+
+    def crescent(self):
+        return [
+            book(
+                200 + n,
+                f"{DRAGONS} crescent city bryce story{n}",
+                ["Fantasy"],
+                title=f"House {n}",
+                author="sarah j maas",
+                series="crescent city",
+                number=float(n),
+            )
+            for n in (1, 2, 3)
+        ]
+
+    def test_after_book_1_the_next_pick_is_book_2_not_book_3(self, catalog):
+        one, two, three = self.crescent()
+        model = Model([*catalog, one, two, three], Params(author_cap=10))
+        picks = ids(model.picks([shelved(one)], WEIGHTS, limit=20))
+        assert two.id in picks and three.id not in picks
+
+    def test_the_next_book_is_boosted_when_the_last_was_liked(self, catalog):
+        one, two, three = self.crescent()
+        model = Model([*catalog, one, two, three], Params(author_cap=10))
+        boosted = model.picks([shelved(one, rating=5)], WEIGHTS, limit=20)
+        plain = Model([*catalog, one, two, three], Params(author_cap=10, series_boost=0))
+        flat = plain.picks([shelved(one, rating=5)], WEIGHTS, limit=20)
+        score = {p.book_id: p.score for p in boosted}
+        flat_score = {p.book_id: p.score for p in flat}
+        assert score[two.id] == pytest.approx(flat_score[two.id] + Params().series_boost)
+
+    def test_no_boost_when_the_finished_book_was_disliked(self, catalog):
+        one, two, three = self.crescent()
+        boost = Model([*catalog, one, two, three], Params(author_cap=10))
+        flat = Model([*catalog, one, two, three], Params(author_cap=10, series_boost=0))
+        a = {
+            p.book_id: p.score
+            for p in boost.picks([shelved(one, rating=2), shelved(catalog[0])], WEIGHTS, limit=20)
+        }
+        b = {
+            p.book_id: p.score
+            for p in flat.picks([shelved(one, rating=2), shelved(catalog[0])], WEIGHTS, limit=20)
+        }
+        assert two.id in a  # still the next pick, just not boosted
+        assert a[two.id] == pytest.approx(b[two.id])
+
+    def test_after_books_1_and_2_the_next_is_3(self, catalog):
+        one, two, three = self.crescent()
+        model = Model([*catalog, one, two, three], Params(author_cap=10))
+        assert three.id in ids(model.picks([shelved(one), shelved(two)], WEIGHTS, limit=20))
+
+    def test_a_series_with_a_dnf_is_skipped(self, catalog):
+        one, two, three = self.crescent()
+        model = Model([*catalog, one, two, three], Params(author_cap=10))
+        picks = ids(
+            model.picks(
+                [shelved(catalog[0]), shelved(one, "dnf", None, "pacing")], WEIGHTS, limit=20
+            )
+        )
+        assert two.id not in picks and three.id not in picks
+
+    def test_a_numbered_book_in_an_unknown_series(self, catalog):
+        later = book(
+            300,
+            DRAGONS + " story0 chapter0",
+            ["Fantasy"],
+            title="Apprentice #10",
+            series="?",
+            number=10.0,
+        )
+        first = book(
+            301,
+            DRAGONS + " story1 chapter1",
+            ["Fantasy"],
+            title="Apprentice #1",
+            series="?",
+            number=1.0,
+        )
+        model = Model([*catalog, later, first], Params(author_cap=10))
+        picks = ids(model.picks([shelved(catalog[0])], WEIGHTS, limit=20))
+        assert later.id not in picks and first.id in picks

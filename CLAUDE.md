@@ -6,7 +6,7 @@ Version 1 has exactly one user (me), must cost $0/month to host, and doubles as 
 
 ## Current phase
 
-**Phase 2 complete. Phase 3 in progress, plus small feature requests added as they come up.**
+**Phase 3 complete. Next: the recommendations follow-up (the five misses from `--mine`), then Phase 4 (release alerts).**
 
 **Phase 3 (recommendations) is blocked** until I've used the app for about a week and the fixes I found are done. Don't start it until I say so.
 

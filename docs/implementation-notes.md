@@ -611,13 +611,28 @@ Both commands print how many books each rule excludes. More-like-this lists skip
 - **"More like this" on book pages:** up to 6 similar books with the same layout. The section is hidden while loading, when empty, or when the request fails (including an older API without the endpoint).
 - **Adding a book** refreshes the picks, "more like this" and author pages.
 
-### Next follow-up (from `--mine`, Nov 18, 2026)
+### Follow-up: the five misses from `--mine` (Nov 18, 2026)
 
-1. Children's picture books ("Bartholomew and the Oobleck"): filter very short juvenile works (under about 64 pages plus juvenile genres).
-2. Non-Latin titles get past the language filter ("密やかな結晶"): catch CJK, Cyrillic and other scripts.
-3. Titles that are only a series marker ("(Airhead #1)"): exclude, or repair the title.
-4. Mid-series books with no known series ("The Emperor of Nihon-Ja", "Ranger's Apprentice #10"): a "Book N" / "#N" title heuristic.
-5. R-6 "next in series", pulled forward if small: recommend the next unread book of a series you've read ("House of Flame and Shadow" after book 1).
+Each rule was measured on the seeded catalog first. Local counts below.
+
+1. **Picture books** (132 excluded): a picture-book genre ("Picture books", "Board books", "Stories in rhyme") unless the book has 120+ pages, or a juvenile or children's genre under 64 pages.
+   - "Charlie and the Chocolate Factory" (175 pages, one edition tagged as a picture book) stays in.
+   - Page counts under 10 are treated as unknown, since they're data errors ("Anna Dressed in Blood": 1 page).
+2. **Non-Latin titles:** more than half the title's letters in another script (CJK, Cyrillic, Greek…) counts as foreign, which brings foreign to 391 (from 326). "Les Misérables" and "Pokémon Adventures" stay in.
+3. **Titles that are only a series marker** ("(Airhead #1)", 1 book) are excluded. Repairing them would need the original record.
+4. **Series sources, in order:**
+   1. The catalog's series fields (your Goodreads import).
+   2. The title's marker ("(The Dresden Files, Book 7)").
+   3. **New:** a description phrase with both a number and a named series ("the third book in the … Crescent City series", "sixth novel in Diana Gabaldon's bestselling Outlander saga", "Book 10 in the Ranger's Apprentice series"). The name is the last run of capitalized words, so an author's possessive name and words like "bestselling" drop out. An ordinal alone ("her second novel") still doesn't count.
+   4. **New:** a trailing "Book N" / "#N" in the title, series name unknown. Such a book is skipped when N > 1.
+   - Known series locally: 231, up from 117, plus 39 numbered books in an unknown series.
+   - **Still missed:** "The Emperor of Nihon-Ja". Neither its title nor its description names Ranger's Apprentice.
+5. **R-6 "next in series", pulled forward:**
+   - A series counts as **started** when you've finished or are reading one of its books.
+   - In a started series, only the **next unread book** in the catalog is recommended. A later book's slot goes to it, so after Crescent City #1 the pick is #2, not "House of Flame and Shadow" (#3). With nothing unread left, later books are skipped.
+   - The next book gets `series_boost` (0.1, `--series-boost` to tune) when you rated what you finished 3★+ or left it unrated.
+   - **A series with a DNF is skipped entirely.**
+   - Series match on `series_key` ("The Crescent City series" and Goodreads' "Crescent City" are both "crescent city").
 
 ## Phase 5 backlog
 
