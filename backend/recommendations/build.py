@@ -18,7 +18,7 @@ from catalog.services import normalize
 from tracking.models import UserBook
 
 from .candidates import series_with_source
-from .engine import NO_AUTHOR, BookText, Model, Params, Pick, ShelfItem
+from .engine import NO_AUTHOR, BookText, BoostEffect, Model, Params, Pick, ShelfItem
 from .models import Recommendation, RecommendationRun, SimilarBook
 
 WRITE_BATCH = 2_000
@@ -95,6 +95,7 @@ class Results:
     picks: dict[int, list[Pick]]
     neighbours: dict[int, list[tuple[int, float]]]
     seconds: float
+    boost: dict[int, BoostEffect] = field(default_factory=dict)  # user -> effect on top picks
 
 
 DEFAULT_PARAMS = Params()
@@ -105,8 +106,12 @@ def compute(snapshot: Snapshot, params: Params = DEFAULT_PARAMS) -> Results:
     model = Model(snapshot.books, params)
     weights = settings.DNF_REASON_WEIGHTS
     picks = {user: model.picks(shelf, weights) for user, shelf in snapshot.shelves.items()}
+    boost = {
+        user: model.boost_effect(shelf, weights, params.picks)
+        for user, shelf in snapshot.shelves.items()
+    }
     neighbours = model.neighbours()
-    return Results(model, picks, neighbours, time.perf_counter() - started)
+    return Results(model, picks, neighbours, time.perf_counter() - started, boost)
 
 
 @dataclass

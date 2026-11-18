@@ -104,6 +104,17 @@ class Params:
 
 
 @dataclass(frozen=True)
+class BoostEffect:
+    """The series boost's effect on one reader's top picks (see Model.boost_effect)."""
+
+    boosted: int  # next-in-series books given the boost
+    in_top: int  # of those, how many are in the top picks
+    moved: int  # top picks whose position changed because of the boost
+    entered: int  # books in the top picks only because of the boost
+    left: int  # books pushed out of the top picks by it
+
+
+@dataclass(frozen=True)
 class Pick:
     book_id: int
     score: float
@@ -180,6 +191,7 @@ class _Context:
     shelved_titles: set[str]
     series: _SeriesState
     next_rows: dict[str, int] = field(default_factory=dict)
+    boosted: list[int] = field(default_factory=list)  # rows given the series boost
     picked_keys: set[Key] = field(default_factory=set)
     per_author: Counter = field(default_factory=Counter)
 
@@ -244,7 +256,9 @@ class Model:
 
     # --- Picks -----------------------------------------------------------------------
 
-    def _context(self, shelf: list[ShelfItem], dnf_weights: dict[str, float]) -> _Context | None:
+    def _context(
+        self, shelf: list[ShelfItem], dnf_weights: dict[str, float], boost: bool = True
+    ) -> _Context | None:
         p = self.params
         liked_rows = self._rows(s.book_id for s in liked_books(shelf, p.min_liked))
         if not liked_rows:
@@ -277,8 +291,9 @@ class Model:
                 for number, row in self.series_rows.get(name, ()):
                     if number > read_up_to and not self._blocked(row, ctx):
                         ctx.next_rows[name] = row
-                        if name in ctx.series.liked:
+                        if boost and name in ctx.series.liked and p.series_boost:
                             ctx.score[row] += p.series_boost
+                            ctx.boosted.append(row)
                         break
         return ctx
 
@@ -296,12 +311,17 @@ class Model:
         return None
 
     def picks(
-        self, shelf: list[ShelfItem], dnf_weights: dict[str, float], limit: int | None = None
+        self,
+        shelf: list[ShelfItem],
+        dnf_weights: dict[str, float],
+        limit: int | None = None,
+        boost: bool = True,
     ) -> list[Pick]:
-        """The reader's top picks, best first. Empty without any liked book that has text."""
+        """The reader's top picks, best first. Empty without any liked book that has text.
+        boost=False leaves out the series boost (to measure it)."""
         p = self.params
         limit = limit or p.picks
-        ctx = self._context(shelf, dnf_weights)
+        ctx = self._context(shelf, dnf_weights, boost=boost)
         if ctx is None:
             return []
         chosen: list[Pick] = []
@@ -382,6 +402,24 @@ class Model:
             return "author_cap"
         return "ranked_below"
 
+    def boost_effect(
+        self, shelf: list[ShelfItem], dnf_weights: dict[str, float], depth: int
+    ) -> "BoostEffect":
+        """What the series boost changes in the top `depth` picks: picks are made with and
+        without it and compared."""
+        ctx = self._context(shelf, dnf_weights)
+        boosted = {self.books[r].id for r in ctx.boosted} if ctx else set()
+        with_boost = [p.book_id for p in self.picks(shelf, dnf_weights, limit=depth)]
+        without = [p.book_id for p in self.picks(shelf, dnf_weights, limit=depth, boost=False)]
+        position = {book: i for i, book in enumerate(without)}
+        return BoostEffect(
+            boosted=len(boosted),
+            in_top=sum(1 for b in with_boost if b in boosted),
+            moved=sum(1 for i, b in enumerate(with_boost) if b in position and position[b] != i),
+            entered=len(set(with_boost) - set(without)),
+            left=len(set(without) - set(with_boost)),
+        )
+
     # --- More like this ------------------------------------------------------------
 
     def neighbours(self, chunk: int = 1000) -> dict[int, list[tuple[int, float]]]:
@@ -422,6 +460,8 @@ class HoldoutResult:
     # Why targets missed the top max(k), summed over seeds ("ranked_below": scored too low).
     misses: Counter = field(default_factory=Counter)
     tail_hidden: list[int] = field(default_factory=list)  # extra series books hidden per seed
+    boost: list[BoostEffect] = field(default_factory=list)  # per seed, top max(k)
+    hits_from_boost: dict[int, int] = field(default_factory=dict)  # k -> hits it added (all seeds)
 
     def average(self, k: int) -> float:
         return sum(self.hits[k]) / len(self.hits[k]) if self.hits.get(k) else 0.0
@@ -453,7 +493,12 @@ def holdout(
     """
     liked = [s for s in shelf if s.rating is not None and s.rating >= 4 and s.book_id in model.row]
     hidden_count = max(1, round(len(liked) * fraction)) if liked else 0
-    result = HoldoutResult(liked=len(liked), hidden=hidden_count, hits={k: [] for k in at})
+    result = HoldoutResult(
+        liked=len(liked),
+        hidden=hidden_count,
+        hits={k: [] for k in at},
+        hits_from_boost=dict.fromkeys(at, 0),
+    )
     if not hidden_count:
         return result
     depth = max(at)
@@ -469,9 +514,15 @@ def holdout(
         )
         picks = model.picks(visible, dnf_weights, limit=depth)
         picked_keys = [model.books[model.row[p.book_id]].key for p in picks]
+        unboosted = model.picks(visible, dnf_weights, limit=depth, boost=False)
+        unboosted_keys = [model.books[model.row[p.book_id]].key for p in unboosted]
+        result.boost.append(model.boost_effect(visible, dnf_weights, depth))
         for k in at:
-            keys = set(picked_keys[:k])
+            keys, plain = set(picked_keys[:k]), set(unboosted_keys[:k])
             result.hits[k].append(sum(1 for s in targets if s.key in keys))
+            result.hits_from_boost[k] += sum(
+                1 for s in targets if s.key in keys and s.key not in plain
+            ) - sum(1 for s in targets if s.key in plain and s.key not in keys)
         for target in targets:
             if target.key not in set(picked_keys):
                 result.misses[model.explain(visible, dnf_weights, target.book_id, depth)] += 1

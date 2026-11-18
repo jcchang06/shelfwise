@@ -661,6 +661,24 @@ Each rule was measured on the seeded catalog first. Local counts below.
   - Linking books by the same author through such a character genre finds 59 seeded books with no known series (most of the Dresden Files and Wheel of Time).
   - Those links have no number, and many are book 1s ("The Eye of the World", "One for the Money"), so they'd need an order, for example publication year against the series' numbered books. Proposed, not built.
 
+### Neon results with series tails, and the series boost (Nov 18, 2026)
+
+| Run (genre weight 1, 5 seeds) | Hits in top 20 | Hits in top 50 |
+| --- | --- | --- |
+| **Default (series tails)** | 4.4 (48.9%) | 5.6 (62.2%) |
+| `--no-series-tails` (old simulation) | 1.8 (20.0%) | 2.0 (22.2%) |
+| `--no-next-in-series` | 3.0 (33.3%) | 4.4 (48.9%) |
+| `--no-description-series`, `--no-title-number-series`, `--no-picture-books`, `--no-non-latin` | same as default | same as default |
+| `--series-boost 0`, `0.1`, `0.2` | same as default, every seed | same as default |
+
+- Misses at the default: ranked_below 7, not_next_in_series 4, author_cap 3, series_first_book_instead 3.
+- **Decisions:** keep all #42 rules. The drop was the simulation, and next-in-series helps (48.9% against 33.3%).
+- **The boost is applied.**
+  - Both the report and `build_recommendations` now measure it on the final picks, with and without it (`Model.boost_effect`): books boosted, how many are in the top N, picks moved, entered and left, and (in the report) the hits it added.
+  - On a synthetic series reader it boosts 3 to 4 books per seed, reorders 5 to 15 picks, and added 2 hits over 5 seeds.
+  - On your shelf the hit counts don't change. With series tails, each boosted book is the next unread one in a series you've started, and those already rank in the top 20 on similarity alone. The misses it could help ("not next in series") are by definition not boosted.
+  - **0.1 stays** unless the new report line shows it never moving anything.
+
 ## Phase 5 backlog
 
 Everything deferred so far, in one place, to pick up in Phase 5 (polish) or sooner if it becomes urgent. Each item links back to where it was decided.
@@ -678,6 +696,9 @@ Everything deferred so far, in one place, to pick up in Phase 5 (polish) or soon
 - **Reading streak** (Dashboard). Consecutive days with at least one reading log, for the goal-setter persona. It's not part of T-5, so the Phase 1 dashboard shows totals only. It can be worked out from `ReadingLog.log_date` in `TIME_ZONE`, added to `/api/stats/`, and shown as a stat tile.
 - **More Open Library genre noise** (C-2, R-1). `normalize_genres` doesn't yet drop series and reading-level tags stored as genres ("Series:Lightlark", "Serie:Kings_of_Sin", "Reading Level-Grade 7", "Translations into Russian"). Add them to the noise filter, then rerun `normalize_genres --dry-run` / `--apply` and recheck the held-out numbers.
 - **Repair books with no linked author** (C-2). An import can save a catalog book without its author (2 of 400 locally). Recommendations work around it by title, but author pages and dedupe miss them. A dry-run command could relink authors from the source record.
+- **Series from a character genre and publication year** (R-6). "Ghost Story" (Dresden Files #13) has no series cue in its title or description, but its genres include "Harry Dresden (Fictitious character)". The same author plus a shared "(Fictitious character)" genre links 59 seeded books to a known series (most of the Dresden Files, Wheel of Time, House of Night, Stephanie Plum, Outlander).
+  - Those links have no number, and many are book 1s ("The Eye of the World", "One for the Money"). So place them by first publication year against the series' numbered books: published after the series' known #1 counts as a later book; otherwise unknown, and left alone.
+  - Measure with the held-out check and the `--mine` list before keeping it.
 - **Merge duplicate authors** (C-5, C-6). The same person can be two `Author` rows under different spellings ("M. Vell" and "Mara Vell"). Only one can hold the Open Library key, which is unique, so the nightly job counts these as `duplicate_authors` and leaves them. Author pages still find the key through the other row's work. A `merge_duplicate_authors --dry-run`, like `merge_duplicate_books`, would move `BookAuthor` links to one row.
 - **Sign-up page** (Frontend foundation). Production has sign-up turned off (`ALLOW_SIGNUP=false`) and v1 has one user. Add the page only if a public beta happens.
 

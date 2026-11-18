@@ -435,3 +435,43 @@ class TestDiagnosis:
         # Hiding #2 also hides #3 and #4: the reader has read #1 only.
         assert _series_tails(model, shelf, [shelved(two)]) == {three.id, four.id}
         assert _series_tails(model, shelf, [shelved(four)]) == set()
+
+
+class TestBoostEffect:
+    def crescent(self):
+        return [
+            book(
+                500 + n,
+                f"{SPACE} crescent saga story{n}",
+                ["Science Fiction"],
+                title=f"House {n}",
+                author=f"maas {n}",
+                series="crescent city",
+                number=float(n),
+                key=(f"house {n}", "m"),
+            )
+            for n in (1, 2, 3)
+        ]
+
+    def test_the_boost_is_applied_and_measured(self, catalog):
+        one, two, three = self.crescent()
+        model = Model([*catalog, one, two, three], Params(author_cap=10, series_boost=0.5))
+        shelf = [shelved(one), shelved(catalog[0]), shelved(catalog[1])]
+        effect = model.boost_effect(shelf, WEIGHTS, depth=5)
+        assert effect.boosted == 1 and effect.in_top == 1
+        plain = ids(model.picks(shelf, WEIGHTS, limit=5, boost=False))
+        boosted = ids(model.picks(shelf, WEIGHTS, limit=5))
+        assert boosted.index(two.id) < (plain.index(two.id) if two.id in plain else 99)
+
+    def test_no_boost_no_effect(self, catalog):
+        one, two, three = self.crescent()
+        model = Model([*catalog, one, two, three], Params(author_cap=10, series_boost=0))
+        effect = model.boost_effect([shelved(one), shelved(catalog[0])], WEIGHTS, depth=5)
+        assert (effect.boosted, effect.moved, effect.entered, effect.left) == (0, 0, 0, 0)
+
+    def test_holdout_reports_the_boost(self, catalog):
+        one, two, three = self.crescent()
+        model = Model([*catalog, one, two, three], Params(author_cap=10))
+        shelf = [shelved(b) for b in (one, two, three, *catalog[:7])]
+        result = holdout(model, shelf, WEIGHTS, seeds=[0, 1, 2])
+        assert len(result.boost) == 3 and set(result.hits_from_boost) == {20, 50}
