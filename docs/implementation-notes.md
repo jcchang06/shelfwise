@@ -571,7 +571,17 @@ The build reads your Neon shelf for the "my genres" pool, which was empty locall
 | 5 | on | 2.2 (24.4%) | 3.6 (40.0%) |
 | 3 | off | 2.6 (28.9%) | 3.2 (35.6%) |
 
-Random picks would score about 0.20% and 0.50%. Weight 1 beat 3 in every seed, so **the default is genre weight 1 with phrases on**. Weights 0 and 2 are still to try (`--genre-weight 0` leaves genre tokens out entirely). The synthetic readers' genre share falls with weight 1 (17, 14 and 11 of 20, down from 20, 17 and 15). That's expected, since genres count for less, and the held-out number on real ratings is the better signal.
+Random picks would score about 0.20% and 0.50%. Weight 1 beat 3 in every seed, so **the default is genre weight 1 with phrases on**.
+
+**After the candidate fixes** (#40), 5 seeds:
+
+| Genre weight | Hits in top 20 | Hits in top 50 |
+| --- | --- | --- |
+| 0 | 5.2 (57.8%) | 5.4 (60.0%) |
+| **1 (default)** | 5.0 (55.6%) | 5.8 (64.4%) |
+| 2 | 4.2 (46.7%) | 4.8 (53.3%) |
+
+Weight 1 is kept: tied with 0 at 20 and better at 50. `--mine`: the six issues are gone, and about 15 of the 20 picks are books you'd read. The synthetic readers' genre share falls with weight 1 (17, 14 and 11 of 20, down from 20, 17 and 15). That's expected, since genres count for less, and the held-out number on real ratings is the better signal.
 
 **Six fixes after `--mine`** (`recommendations/candidates.py`, measured on the 9,997 seeded books first):
 
@@ -589,6 +599,25 @@ Random picks would score about 0.20% and 0.50%. Weight 1 beat 3 in every seed, s
    - **Limitation:** only 117 local books have a known series. A seeded book with no marker in its title ("A Clash of Kings") isn't recognised. Description cues were too noisy to use: "a second novel" flagged "A Fine Balance".
 
 Both commands print how many books each rule excludes. More-like-this lists skip excluded books, so a few books have fewer than 10 neighbours: 101,683 rows locally, down from 103,660.
+
+## R-2, R-3: Picks and "more like this" in the app (recommendations PR 2)
+
+- **`GET /api/recommendations/`** → `{computed_at, results: [{rank, book, because_of}]}` from the latest finished run.
+  - `book` is `{id, title, author_links, cover_url, page_count, published_date, shelf}`. `shelf` is computed per request, so a pick shelved since the run shows as "On your shelf" until the next run drops it.
+  - `computed_at` is null before the first run. An empty `results` after a run means the reader has nothing rated or finished with text yet.
+  - `because_of` is returned now and shown by R-4 later. Fixed at 4 queries (test).
+- **`GET /api/books/{id}/similar/?limit=6`** (at most 10): the most similar books, best first, with the caller's shelf status. Empty before the first run; 404 for an unknown book.
+- **"For you" page** (`/for-you`, in the main navigation): the picks in rank order. Each shows cover, title, linked authors, year, and either "On your shelf · Status" or the add form (all four shelves). There's a note with the last update date, a message before the first run, and "Rate a few finished books 4★ or higher…" when there are no picks.
+- **"More like this" on book pages:** up to 6 similar books with the same layout. The section is hidden while loading, when empty, or when the request fails (including an older API without the endpoint).
+- **Adding a book** refreshes the picks, "more like this" and author pages.
+
+### Next follow-up (from `--mine`, Nov 18, 2026)
+
+1. Children's picture books ("Bartholomew and the Oobleck"): filter very short juvenile works (under about 64 pages plus juvenile genres).
+2. Non-Latin titles get past the language filter ("密やかな結晶"): catch CJK, Cyrillic and other scripts.
+3. Titles that are only a series marker ("(Airhead #1)"): exclude, or repair the title.
+4. Mid-series books with no known series ("The Emperor of Nihon-Ja", "Ranger's Apprentice #10"): a "Book N" / "#N" title heuristic.
+5. R-6 "next in series", pulled forward if small: recommend the next unread book of a series you've read ("House of Flame and Shadow" after book 1).
 
 ## Phase 5 backlog
 

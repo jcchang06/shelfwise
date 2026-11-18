@@ -20,6 +20,7 @@ export function AppShell() {
           </NavLink>
           <NavLink to="/dashboard">Dashboard</NavLink>
           <NavLink to="/shelf">Shelf</NavLink>
+          <NavLink to="/for-you">For you</NavLink>
           <NavLink to="/search">Search</NavLink>
           <NavLink to="/import">Import</NavLink>
         </nav>

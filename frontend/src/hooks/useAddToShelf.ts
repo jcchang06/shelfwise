@@ -46,6 +46,8 @@ export function useAddToShelf() {
       void queryClient.invalidateQueries({ queryKey: ['shelf', 'list'] });
       void queryClient.invalidateQueries({ queryKey: ['stats'] });
       void queryClient.invalidateQueries({ queryKey: ['author'] }); // shelf status per work
+      void queryClient.invalidateQueries({ queryKey: ['recommendations'] });
+      void queryClient.invalidateQueries({ queryKey: ['similar'] });
     },
   });
 }
